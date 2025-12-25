@@ -78,6 +78,7 @@ class Sparrow():
 
         '''State/Action/Reward initialization'''
         assert self.ld_num % self.ld_GN == 0  # ld_num must be divisible by ld_GN
+        #ld_num 激光雷达总线数 ld_GN 激光雷达分组数
         self.grouped_ld_num = int(self.ld_num / self.ld_GN)
         self.absolute_state_dim = 5 + self.grouped_ld_num  # [dx,dy,orientation,v_linear,v_angular] + [lidar result]
         self.state_dim = 8 + self.grouped_ld_num  # [cAl,cAa,rAl,rAa,D2T,alpha,v_linear,v_angular] + [lidar result]

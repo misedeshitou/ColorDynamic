@@ -134,9 +134,10 @@ class Actor:
 	def fresh_explore_prob(self, steps):
 		#fresh vectorized e-greedy noise
 		explore_frac = self.explore_frac_scheduler.value(steps)
+		# self.N 代表并行环境的数量
 		i = int(explore_frac * self.N)
 		explore = torch.arange(i, device=self.A_dvc) / (2 * i)  # 0 ~ 0.5
-
+		# self.p 扮演的是 “探索概率（Epsilon）的分布向量”
 		self.p.fill_(self.min_eps)
 		self.p[self.N - i:] += explore
 		self.p = self.p[torch.randperm(self.N)]  # 打乱vectorized e-greedy noise, 让探索覆盖每一个地图
@@ -149,8 +150,12 @@ class Actor:
 			if deterministic:
 				return a
 			else:
+				#向量并行化处理
+				# 1. 一次性生成 N 个随机数
 				replace = torch.rand(self.N, device=self.A_dvc) < self.p  # [n]
+				# 2. 一次性生成 N 个随机动作
 				rd_a = torch.randint(0, self.action_dim, (self.N,), device=self.A_dvc)
+				# 3. 利用布尔索引（Mask）一次性替换需要探索的环境动作
 				a[replace] = rd_a[replace]
 				return a
 
