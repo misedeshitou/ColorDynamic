@@ -285,6 +285,8 @@ class Sparrow():
         self.vec_static_bound_code = (self.vec_static_obs_P_shaped[:,:,0,0]*self.window_size +self.vec_static_obs_P_shaped[:,:,1,0]).unsqueeze(1) # (N,1,O*P)
 
     def _dynamic_obstacle_init(self):
+        # self.O = 0 
+        # self.P = 0
         '''Init the bound points of the dynamic obstacles:
         vec_dynamic_obs_P         丨  (N,O,P,2)    丨  障碍物运动  丨  障碍物反弹
               ↓↓↓
@@ -298,6 +300,19 @@ class Sparrow():
         '''
 
         '''变量初始化'''
+        # --- 新增：如果 O 为 0，初始化空变量并直接返回 ---
+        if self.O == 0:
+            self.P = 0
+            # 初始化为空张量，防止其他函数（如雷达、step、渲染）报错
+            self.vec_dynamic_obs_P = torch.zeros((self.N, 0, 0, 2), dtype=torch.long, device=self.dvc)
+            self.vec_dynamic_obs_P_shaped = torch.zeros((self.N, 0, 2, 1), dtype=torch.long, device=self.dvc)
+            self.dynamic_obs_mask = torch.zeros((self.N, 0, 1, 1), dtype=torch.bool, device=self.dvc)
+            self.Obs_V_tensor = torch.zeros((self.N, 0, 1, 2), dtype=torch.long, device=self.dvc)
+            self.vec_dynamic_bound_code = torch.zeros((self.N, 1, 0), dtype=torch.long, device=self.dvc)
+            if self.ScOV:
+                self.max_Obs_Vs = torch.zeros((self.N, 0, 1, 1), dtype=torch.long, device=self.dvc)
+            return 
+        # --------------------------------------------
         self.Obs_V_tensor = (self._random_noise(self.Obs_V, (self.N, self.O, 1, 2), self.dvc) * self.Obs_refresh_interval *\
                       self.ctrl_interval.reshape(self.N,1,1,1)).to(self.dvc).round().long() # 障碍物的速度, (N,O,1,2)
         self.dynamic_obs_mask = torch.ones((self.N, self.O, 1, 1), dtype=torch.bool, device=self.dvc) # (N,O,1,1), 为False的动态障碍物不能移动

@@ -10,7 +10,7 @@ parser.add_argument('--action_type', type=str, default='Discrete', help='Action 
 parser.add_argument('--window_size', type=int, default=800, help='size of the map')
 parser.add_argument('--D', type=int, default=400, help='maximal local planning distance')
 parser.add_argument('--N', type=int, default=1, help='number of vectorized environments')
-parser.add_argument('--O', type=int, default=1, help='number of obstacles in each environment')
+parser.add_argument('--O', type=int, default=0, help='number of obstacles in each environment')
 parser.add_argument('--RdON', type=str2bool, default=False, help='whether to randomize the Number of dynamic obstacles')
 parser.add_argument('--ScOV', type=str2bool, default=False, help='whether to scale the maximal velocity of dynamic obstacles')
 parser.add_argument('--RdOV', type=str2bool, default=True, help='whether to randomize the Velocity of dynamic obstacles')
