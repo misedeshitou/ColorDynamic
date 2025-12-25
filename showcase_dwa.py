@@ -37,9 +37,15 @@ parser.add_argument('--compile', type=str2bool, default=False, help='whether to 
 opt = parser.parse_args()
 opt.dvc = torch.device(opt.dvc)
 
-envs = Sparrow(**vars(opt))
-s, info = envs.reset()
-while True:
-    a = torch.randint(low=0, high=envs.action_dim, size=(envs.N,), device=envs.dvc)
-    s_next, r, terminated, truncated, info = envs.step(a)
+def main():
+    # Build env
+    env = Sparrow(**vars(opt))  # for test
+    s, info = env.reset()
 
+    # Play
+    while True:
+        a = torch.randint(low=0, high=env.action_dim, size=(env.N,), device=env.dvc)
+        s_next, r, terminated, truncated, info = env.step(a)
+
+if __name__ == '__main__':
+    main()
