@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 
 
@@ -10,18 +11,18 @@ class DWAController:
 
     class _DefaultConfig:
         def __init__(self):
-            self.max_speed = 50.0
+            self.max_speed = 50.0  # cm/s
             self.min_speed = -50.0
             self.max_yawrate = 2.0
-            self.max_accel = 2.0
+            self.max_accel = 5.0
             self.max_dyawrate = 2.0
-            self.v_reso = 0.1
-            self.yawrate_reso = 0.2
-            self.dt = 0.1
-            self.predict_time = 3.0
-            self.goal_cost_gain = 1.0
-            self.speed_cost_gain = 1.0
-            self.obstacle_cost_gain = 1.0
+            self.v_reso = 0.1  # m/s 速度分辨率
+            self.yawrate_reso = 0.2  # rad/s 角速度分辨率
+            self.dt = 0.1  # 采样周期
+            self.predict_time = 1.0  # 预测时间
+            self.goal_cost_gain = 0.6
+            self.speed_cost_gain = 0.1
+            self.obstacle_cost_gain = 0.3
             self.robot_radius = 5.0
             self.window_size = 800  # 地图尺寸800cm x 800cm
             self.safe_dist = 20.0  # 预警半径 cm
@@ -45,19 +46,12 @@ class DWAController:
         self.all_samples = torch.stack([grid_v.flatten(), grid_w.flatten()], dim=1)
 
     def plan(self, x, goal_tensor, vec_static_obs_P_shaped, env_idx=0):
-        """
-        x: 当前状态 [x, y, yaw, v, w]
-        goal_tensor: (2,) 目标点 Tensor
-        ob_tensor: (N, O*P, 2, 1) 原始障碍物数据
-        """
-        # 确保障碍物在正确的设备上
+        # 1. 数据准备
         current_obs = vec_static_obs_P_shaped[env_idx].squeeze(-1).float().to(self.dvc)
-        print(current_obs.shape)
         goal_tensor = goal_tensor.to(self.dvc)
-
         x_state = torch.tensor(x, device=self.dvc).float()
 
-        # 计算动态窗口 (Dynamic Window)
+        # 2. 动态窗口 (Dynamic Window) 筛选
         dw = [
             max(self.config.min_speed, x[3] - self.config.max_accel * self.config.dt),
             min(self.config.max_speed, x[3] + self.config.max_accel * self.config.dt),
@@ -70,26 +64,24 @@ class DWAController:
                 x[4] + self.config.max_dyawrate * self.config.dt,
             ),
         ]
-
-        # 筛选符合 DW 的速度样本
         v_mask = (self.all_samples[:, 0] >= dw[0]) & (self.all_samples[:, 0] <= dw[1])
         w_mask = (self.all_samples[:, 1] >= dw[2]) & (self.all_samples[:, 1] <= dw[3])
-        samples = self.all_samples[v_mask & w_mask]  # (K, 2) K 为样本数
+        samples = self.all_samples[v_mask & w_mask]
 
-        # 批量预测轨迹 (Batch Trajectory Prediction)
-        # 轨迹形状: (K, Steps, 3) 其中 3 是 [x, y, yaw]
-        steps = int(self.config.predict_time / self.config.dt)
-        t_range = torch.arange(1, steps + 1, device=self.dvc) * self.config.dt
+        if samples.shape[0] == 0:
+            return np.array([0.0, 0.0]), x_state[:2].cpu().numpy()
 
-        # 提取速度和角速度
-        v = samples[:, 0:1]  # (K, 1)
-        w = samples[:, 1:2]  # (K, 1)
+        # 3. 圆弧积分法代替直线积分预测轨迹
+        eval_dt = 0.05
+        steps = int(self.config.predict_time / eval_dt)
+        t_range = torch.arange(1, steps + 1, device=self.dvc) * eval_dt
 
+        v, w = samples[:, 0:1], samples[:, 1:2]
+        print(v, w)
         w_safe = torch.where(w.abs() < 1e-5, torch.ones_like(w) * 1e-5, w)
-
         current_yaw = x_state[2]
 
-        # x 修正: 积分 v*cos(yaw)
+        #  x 修正: 积分 v*cos(yaw)
         traj_x = x_state[0] + (v / w_safe) * (
             torch.sin(current_yaw + w_safe * t_range) - torch.sin(current_yaw)
         )
@@ -100,58 +92,61 @@ class DWAController:
         )
 
         traj_yaw = current_yaw + w_safe * t_range
-        # -----------------------
+        all_trajectories = torch.stack([traj_x, traj_y], dim=-1)  # (K, Steps, 2)
 
-        # 合并为 (K, Steps, 2) 用于代价计算
-        all_trajectories = torch.stack([traj_x, traj_y], dim=-1)
-
-        # 目标代价归一化：当前距离 / 最大可能距离 (对角线长度)
-        max_dist = (self.config.window_size**2 + self.config.window_size**2) ** 0.5
+        # 4. 代价计算 (无量纲化)
+        # (a) 目标代价: 归一化到 [0, 1]
+        max_map_dist = (self.config.window_size**2 * 2) ** 0.5
         dist_to_goal = torch.norm(all_trajectories[:, -1, :] - goal_tensor, dim=1)
-        norm_goal_cost = dist_to_goal / max_dist
+        norm_goal_cost = dist_to_goal / max_map_dist
 
-        # 速度代价归一化：(最高速 - 当前速) / 最高速
+        # (b) 速度代价: 鼓励接近最大速度 [0, 1]
         norm_speed_cost = (
             self.config.max_speed - samples[:, 0]
         ) / self.config.max_speed
 
-        # 障碍物代价归一化：使用负指数衰减惩罚函数
-        # 当 dist -> robot_radius 时，cost -> 1
-        # 当 dist 很大时，cost -> 0
-        # 检查是否有障碍物点
+        # (c) 障碍物代价: 指数惩罚 + 硬碰撞保护
         if current_obs.shape[0] == 0:
-            # 如果没有障碍物，代价全为 0，最小距离设为一个很大的值
-            min_dists_per_traj = torch.ones(samples.shape[0], device=self.dvc) * 1e6
-            print("No obstacles detected.")
+            norm_obs_cost = torch.zeros(samples.shape[0], device=self.dvc)
         else:
             flat_trajs = all_trajectories.view(-1, 2)
-            # 计算距离矩阵 (K*Steps, M)
             dist_matrix = torch.cdist(flat_trajs, current_obs)
-            # 找到每条轨迹的最小距离 (K*Steps,) -> (K, Steps) -> (K,)
             min_dists_per_step = torch.min(dist_matrix, dim=1)[0]
             min_dists_per_traj = torch.min(
                 min_dists_per_step.view(samples.shape[0], steps), dim=1
             )[0]
-        norm_obs_cost = torch.exp(
-            -(min_dists_per_traj - self.config.robot_radius)
-            / (self.config.safe_dist / 3.0)
-        )
 
+            # 核心保护逻辑
+            net_dist = min_dists_per_traj - self.config.robot_radius
+
+            # 指数衰减 (safe_dist/3 确保在 safe_dist 处代价约 0.05)
+            norm_obs_cost = torch.exp(
+                -torch.clamp(net_dist, min=0) / (self.config.safe_dist / 3.0)
+            )
+
+            # --- 穿模与硬碰撞保护 ---
+            # 如果净距离小于 2cm（即将撞上或已穿模），强制代价设为极大值，压过 goal_cost
+            norm_obs_cost[net_dist <= 15.0] = 5.0
+
+        # 5. 决策
         final_costs = (
             self.config.goal_cost_gain * norm_goal_cost
             + self.config.speed_cost_gain * norm_speed_cost
             + self.config.obstacle_cost_gain * norm_obs_cost
         )
-
         print(
             self.config.goal_cost_gain * norm_goal_cost,
             self.config.speed_cost_gain * norm_speed_cost,
             self.config.obstacle_cost_gain * norm_obs_cost,
         )
+        # 找到最优动作索引
         best_idx = torch.argmin(final_costs)
 
-        best_u = samples[best_idx].cpu().numpy()
-        # 返回最优轨迹用于可视化
-        best_trajectory = all_trajectories[best_idx].cpu().numpy()
+        # 修改判断条件：看这个最优动作的障碍物代价是否触发了“硬保护”
+        # 注意：5.0 是你赋的值，0.3 是权重
+        if norm_obs_cost[best_idx] >= 5.0:
+            best_u = np.array([0.0, 0.0])  # 发现最优解也会撞，急停
+        else:
+            best_u = samples[best_idx].cpu().numpy()
 
-        return best_u, best_trajectory
+        return best_u, all_trajectories[best_idx].cpu().numpy()

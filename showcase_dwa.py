@@ -75,11 +75,13 @@ def dwa_control(env, controller, env_idx=0):
     x = env.car_state[env_idx].cpu().numpy()
 
     # 3. 调用向量化 Plan
-    # self.vec_dynamic_obs_P_shaped (N, O*P, 2, 1)
-    print(env.vec_static_obs_P_shaped.shape)
+    # self.vec_dynamic_obs_P_shaped(N, O * P, 2, 1)
     u, best_traj = controller.plan(
         x, goal_tensor, env.vec_static_obs_P_shaped, env_idx=env_idx
     )
+    #    u, best_traj = controller.plan(
+    #     x, goal_tensor, env.vec_dynamic_obs_P_shaped, env_idx=env_idx
+    # )
 
     # 4. 动作归一化 (DWA 输出的是物理速度，环境通常需要 -1 ~ 1)
     v_norm = u[0] / env.v_linear_max
