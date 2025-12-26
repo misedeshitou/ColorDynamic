@@ -40,7 +40,7 @@ All rights reserved.
 default_cfg = dict(
     dvc=torch.device("cpu"),  # running device of Sparrow: cuda / cpu
     action_type="Discrete",  # 'Discrete' / 'Continuous' action
-    window_size=800,  # size of the training map
+    window_size=800,  # size of the training map   比例尺1:1 地图尺寸800cm x 800cm
     D=400,  # maximal local planning distance
     N=1,  # number of vectorized environments
     O=5,  # number of obstacles in each environment
@@ -354,6 +354,7 @@ class Sparrow:
         ).unsqueeze(1)  # (N,1,O*P)
 
     def _static_obstacle_init(self):
+        # N 并行环境数量 O 静态障碍物数量 P 每个障碍物的栅格点数量
         """Init the bound points of the static obstacles
         even_obs_P               丨  (O*P,2)      丨  pygame绘制得来
               ↓↓↓

@@ -1,6 +1,5 @@
 import argparse
 
-import numpy as np
 import torch
 
 from DWA.dwa_controller import DWAController
@@ -15,13 +14,13 @@ parser.add_argument('--action_type', type=str, default='Continuous', help='Actio
 parser.add_argument('--window_size', type=int, default=800, help='size of the map')
 parser.add_argument('--D', type=int, default=400, help='maximal local planning distance')
 parser.add_argument('--N', type=int, default=1, help='number of vectorized environments')
-parser.add_argument('--O', type=int, default=0, help='number of obstacles in each environment')
+parser.add_argument('--O', type=int, default=0, help='number of dynamics obstacles in each environment')
 parser.add_argument('--RdON', type=str2bool, default=False, help='whether to randomize the Number of dynamic obstacles')
 parser.add_argument('--ScOV', type=str2bool, default=False, help='whether to scale the maximal velocity of dynamic obstacles')
 parser.add_argument('--RdOV', type=str2bool, default=True, help='whether to randomize the Velocity of dynamic obstacles')
 parser.add_argument('--RdOT', type=str2bool, default=True, help='whether to randomize the Type of dynamic obstacles')
 parser.add_argument('--RdOR', type=str2bool, default=True, help='whether to randomize the Radius of obstacles')
-parser.add_argument('--Obs_R', type=int, default=0, help='maximal obstacle radius, cm')
+parser.add_argument('--Obs_R', type=int, default=20, help='maximal obstacle radius, cm')
 parser.add_argument('--Obs_V', type=int, default=30, help='maximal obstacle velocity, cm/s')
 parser.add_argument('--MapObs', type=str, default=None, help="name of map file, e.g. 'map.png' or None")
 parser.add_argument('--ld_a_range', type=int, default=270, help='max scanning angle of lidar (degree)')
@@ -58,37 +57,41 @@ def main():
         if opt.random:
             random_action_test()
         else:
-            dwa_control()
+            dwa_control(env, controller, env_idx=0)
+    return
 
 
-def dwa_control():
-    goal = env.target_point[0].cpu().numpy()
-    obstacles = np.array([[-1, -1], [0, 2], [4.0, 2.0], [5.0, 4.0], [5.0, 5.0]])
-    controller.set_env(goal, obstacles)
-    # 计算最优输入
-    x = env.car_state.cpu().numpy()[0]  # [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
-    # print("Current State: ", x)
-    u, best_traj = controller.plan(x)
-    # print("Optimal Control: ", u)
+def dwa_control(env, controller, env_idx=0):
+    """
+    使用向量化 DWA 控制器的新调用方式
+    env_idx: 指定当前处理的是第几个并行环境 (0 ~ N-1)
+    """
+    # 1. 获取目标点并转换为 Tensor (需与 controller 的 device 一致)
+    # 假设 target_point 形状为 (N, 2)
+    goal_tensor = env.target_point[env_idx].to(controller.dvc).float()
 
-    # 更新状态
-    x = controller.update_state(x, u)
+    # 2. 获取当前车辆状态 (N, 5) -> 取出第 env_idx 个
+    # 状态格式: [x, y, yaw, v, w]
+    x = env.car_state[env_idx].cpu().numpy()
 
-    # continuous action
-    # 归一化
+    # 3. 调用向量化 Plan
+    # self.vec_dynamic_obs_P_shaped (N, O*P, 2, 1)
+    print(env.vec_static_obs_P_shaped.shape)
+    u, best_traj = controller.plan(
+        x, goal_tensor, env.vec_static_obs_P_shaped, env_idx=env_idx
+    )
+
+    # 4. 动作归一化 (DWA 输出的是物理速度，环境通常需要 -1 ~ 1)
     v_norm = u[0] / env.v_linear_max
     w_norm = u[1] / env.v_angular_max
 
-    # 转换为环境需要的 (N, 2) 维度的 Tensor
-    # [ [ ... ] ] 嵌套
-    optimal_action = torch.tensor(
-        [[v_norm, w_norm]], device=env.dvc, dtype=torch.float32
-    )
+    # 5. 组装 Action Tensor (N, 2)
+    batch_action = torch.zeros((env.N, 2), device=env.dvc, dtype=torch.float32)
+    batch_action[env_idx] = torch.tensor([v_norm, w_norm], device=env.dvc)
 
-    # print("Optimal Control Tensor:\n", optimal_action.cpu().numpy())
+    env.step(batch_action)
 
-    env.step(optimal_action)
-    return
+    return u, best_traj
 
 
 def random_action_test():
