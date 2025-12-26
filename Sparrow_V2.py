@@ -897,10 +897,15 @@ class Sparrow:
             )  # 鼓励使用前进动作(提升移动速度、防止原地滞留) (N,) = 0 or 1
             R_retreat_slowdown = (current_a == 5) + (current_a == 6)  # 惩罚后退和减速
         else:
-            # R_forward = (currentjs_a[:,0] > 0.5)
-            # R_forward = current_a[:,0].clip(0., 1.) # 向前的线速度越大，奖励越高
-            R_forward = 0
-            # R_retreat_slowdown = (current_a[:,0] <= 0)
+            if current_a.dim() == 1:
+                # 如果是 DWA 传进来的 [v, w]，直接取第一个元素
+                v_linear = current_a[0]
+            else:
+                # 如果是 RL 传进来的 [N, 2]，取第一列
+                v_linear = current_a[:, 0]
+
+            R_forward = v_linear > 0.5
+            R_retreat_slowdown = v_linear <= 0
         self.reward_vec = (
             0.5 * R_distance
             + R_orientation * R_forward
@@ -946,9 +951,14 @@ class Sparrow:
                 (self.a_state[current_a], self.a_state[real_a], observation), dim=1
             )  # (N,2)+(N,2)->(N,abs_state_dim-1) => (N,state_dim)
         else:
-            return torch.cat(
-                (current_a, real_a, observation), dim=1
-            )  # (N,2)+(N,2)->(N,abs_state_dim-1) => (N,state_dim)
+            # 无论 current_a 是 [1, 2] 还是 [1]，都统一转成 2D 形状 [1, 维度]
+            # view(1, -1) 的意思是：第一维固定为 1，第二维根据元素个数自动推算
+            c_a = current_a.view(1, -1)
+            r_a = real_a.view(1, -1)
+            obs = observation.view(1, -1)  # 确保 observation 也是 2D
+
+            # 现在三个张量都是 2D 了，dim=1 的拼接就不会报错
+            return torch.cat((c_a, r_a, obs), dim=1)
 
     def _get_obs(self) -> torch.tensor:
         """Return: Un-normalized and un-noised observation [dx, dy, theta, v_linear, v_angular, lidar_results(0), ..., lidar_results(n-1)] in shape (N,abs_state_dim)"""
@@ -1047,7 +1057,9 @@ class Sparrow:
         """Update observation: observation -> add_noise -> normalize -> stack[cA,rA,O]"""
         # get next obervation
         observation_vec = self._get_obs()
-
+        # print(
+        #     f"current_a: {current_a.shape}, real_a: {real_a.shape}, obs: {observation_vec.shape}"
+        # )
         # calculate reward, dw, tr, done signals
         self._reward_function(current_a)
 
@@ -1061,7 +1073,9 @@ class Sparrow:
         # absolute coordinates will be transformed to relative distance to target
         # absolute orientation will be transformed to relative orientation
         relative_observation_vec = self._Normalize(observation_vec)  # (N,22)
-
+        # print(
+        #     f"current_a: {current_a.shape}, real_a: {real_a.shape}, obs: {observation_vec.shape}"
+        # )
         # stack action_state to relative_observation_vec
         act_relative_observation_vec = self._stack_A_to_S(
             current_a, real_a, relative_observation_vec
@@ -1275,7 +1289,7 @@ class Sparrow_PlayGround(Sparrow):
         self.d2target_now = (
             (self.car_state[:, 0:2] - self.target_point).pow(2).sum(dim=-1).pow(0.5)
         )  # (N,), Reset后离目标点的距离,_reward_function和_Normalize会用
-        print(self.d2target_now)
+        # print(self.d2target_now)
         # 步数初始化
         self.step_counter_vec.fill_(0)
 

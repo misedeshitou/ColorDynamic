@@ -37,6 +37,7 @@ parser.add_argument('--noise', type=str2bool, default=False, help='whether to ad
 parser.add_argument('--DR', type=str2bool, default=True, help='whether to use Domain Randomization')
 parser.add_argument('--DR_freq', type=int, default=int(3.2e3), help='frequency of Domain Randomization, in total steps')
 parser.add_argument('--compile', type=str2bool, default=False, help='whether to use torch.compile to boost simulation speed')
+parser.add_argument('--planner', type=bool, default=False, help='whether to use rl_planner')
 opt = parser.parse_args()
 opt.dvc = torch.device(opt.dvc)
 # fmt: on
