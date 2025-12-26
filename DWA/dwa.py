@@ -13,19 +13,19 @@ class Config(object):
 
     def __init__(self):
         # robot parameter
-        self.max_speed = 1.4  # [m/s]  # 最大速度
-        # self.min_speed = -0.5  # [m/s]  # 最小速度，设置为可以倒车
-        self.min_speed = 0  # [m/s]  # 最小速度，设置为不倒车
-        self.max_yawrate = 40.0 * math.pi / 180.0  # [rad/s]  # 最大角速度
+        self.max_speed = 0.5  # [m/s]  # 最大速度
+        self.min_speed = -0.5  # [m/s]  # 最小速度，设置为可以倒车
+        # self.min_speed = 0  # [m/s]  # 最小速度，设置为不倒车
+        self.max_yawrate = 2  # [rad/s]  # 最大角速度
         self.max_accel = 0.2  # [m/ss]  # 最大加速度
-        self.max_dyawrate = 40.0 * math.pi / 180.0  # [rad/ss]  # 最大角加速度
+        self.max_dyawrate = 2  # [rad/ss]  # 最大角加速度
         self.v_reso = 0.01  # [m/s]，速度分辨率
-        self.yawrate_reso = 0.1 * math.pi / 180.0  # [rad/s]，角速度分辨率
+        self.yawrate_reso = 0.1  # [rad/s]，角速度分辨率
         self.dt = 0.1  # [s]  # 采样周期
         self.predict_time = 3.0  # [s]  # 向前预估三秒
         self.to_goal_cost_gain = 1.0  # 目标代价增益
         self.speed_cost_gain = 1.0  # 速度代价增益
-        self.robot_radius = 1.0  # [m]  # 机器人半径
+        self.robot_radius = 0.09  # [m]  # 机器人半径
 
 
 # 机器人运动方程
@@ -184,7 +184,10 @@ def calc_final_input(x, u, vr, config, goal, ob):
 
             # 评价函数多种多样，看自己选择
             # 本文构造的是越小越好
-            final_cost = to_goal_cost + speed_cost + ob_cost  # 总计代价，越小轨迹约好
+            # 暂时不考虑障碍物
+            final_cost = (
+                to_goal_cost + speed_cost + 0 * ob_cost
+            )  # 总计代价，越小轨迹约好
 
             # search minimum trajectory
             # 在所有动态窗口划出的动作空间(v,w)里，找到一个最好的动作，在这个动作下，未来预测的轨迹评价最好
@@ -284,9 +287,7 @@ def main():
         u, best_trajectory = dwa_control(
             x, u, config, goal, ob
         )  # 获取最优速度空间和轨迹参数
-
         x = motion(x, u, config.dt)  # 机器人运动方程 x为机器人状态空间
-        print(x)
 
         trajectory = np.vstack((trajectory, x))  # store state history
 
@@ -299,7 +300,6 @@ def main():
             <= config.robot_radius
         ):
             print("Goal!!")
-
             break
 
     print("Done")

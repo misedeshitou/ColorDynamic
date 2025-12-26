@@ -59,7 +59,8 @@ default_cfg = dict(
     ri=0,  # render index: the index of world that to be rendered
     basic_ctrl_interval=0.1,  # control interval (s), 0.1 means 10 Hz control frequency
     ctrl_delay=0,  # control delay, in basic_ctrl_interval, 0 means no control delay
-    K=(0.55, 0.6),  # K_linear, K_angular
+    # K=(0.55, 0.6),  # K_linear, K_angular
+    K=(0, 0),  # K_linear, K_angular(暂时关闭滤波器)
     draw_auxiliary=False,  # whether to draw auxiliary area
     render_mode="human",  # 'human' /or/ None
     render_speed="fast",  # 'real' / 'fast' / 'slow'
@@ -411,7 +412,6 @@ class Sparrow:
                         cdnts[1, i, j],
                         width=2 * self.Obs_R,
                     )
-                    # print(self.Obs_R)
         obs_np = pygame.surfarray.array3d(self.Static_obs_canvas)[:, :, 0]
         b_obs_np = ndimage.binary_erosion(obs_np, self.b_kernel).astype(
             obs_np.dtype
@@ -993,6 +993,7 @@ class Sparrow:
         """V_now = K*V_previous + (1-K)*V_target
         Input: continuous action, (N,2)
         Output: [v_l, v_l, v_a], (N,3)"""
+        # 一阶低通滤波器
         self.car_state[:, 3:5] = (
             self.K * self.car_state[:, 3:5] + (1 - self.K) * self.continuous_scale * a
         )  # a.shape = (N,2)
@@ -1053,7 +1054,7 @@ class Sparrow:
 
         # keep the orientation between [0,2pi]
         self.car_state[:, 2] %= 2 * torch.pi
-
+        # print(self.car_state)
         """Update observation: observation -> add_noise -> normalize -> stack[cA,rA,O]"""
         # get next obervation
         observation_vec = self._get_obs()
