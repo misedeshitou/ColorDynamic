@@ -1,25 +1,29 @@
-import torch.nn as nn
-import torch
 import math
+
+import torch
+import torch.nn as nn
+
 
 class PositionalEncoding_NTD(nn.Module):
     """Batch First Positional Encoding. Note that emb_size must be even numbers"""
+
     def __init__(self, maxlen: int, emb_size: int):
         super(PositionalEncoding_NTD, self).__init__()
 
-        den = torch.exp(- torch.arange(0, emb_size, 2)* math.log(10000) / emb_size)
+        den = torch.exp(-torch.arange(0, emb_size, 2) * math.log(10000) / emb_size)
         pos = torch.arange(0, maxlen).reshape(maxlen, 1)
         pos_embedding = torch.zeros((maxlen, emb_size))
         pos_embedding[:, 0::2] = torch.sin(pos * den)
         pos_embedding[:, 1::2] = torch.cos(pos * den)
-        pos_embedding = pos_embedding.unsqueeze(0) # (T,D) -> (1,T,D) 用于匹配 (N,T,D)
+        pos_embedding = pos_embedding.unsqueeze(0)  # (T,D) -> (1,T,D) 用于匹配 (N,T,D)
 
-        self.register_buffer('pos_embedding', pos_embedding) # 同时保存;在同一个dvc;不参与训练
+        self.register_buffer(
+            "pos_embedding", pos_embedding
+        )  # 同时保存;在同一个dvc;不参与训练
 
     def forward(self, token_embedding: torch.tensor):
-        '''token_embedding的维度必须严格为 (N,T,D)'''
-        return token_embedding + self.pos_embedding # (N,T,D) + (1,T,D) -> (N,T,D)
-
+        """token_embedding的维度必须严格为 (N,T,D)"""
+        return token_embedding + self.pos_embedding  # (N,T,D) + (1,T,D) -> (N,T,D)
 
 
 # pe = BF_PositionalEncoding(maxlen=5, emb_size=6)

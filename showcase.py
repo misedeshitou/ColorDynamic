@@ -1,9 +1,11 @@
-from utils.Transqer import Transqer_agent
-from Sparrow_V2 import Sparrow, str2bool
 import argparse
+
 import torch
 
+from Sparrow_V2 import Sparrow, str2bool
+from utils.Transqer import Transqer_agent
 
+# fmt: off
 parser = argparse.ArgumentParser()
 '''Hyperparameter Setting for Transqer'''
 parser.add_argument('--ModelIdex', type=int, default=2450, help='which model(e.g. 2450k.pth) to load')
@@ -45,7 +47,7 @@ parser.add_argument('--compile', type=str2bool, default=False, help='whether to 
 opt = parser.parse_args()
 opt.render_mode = 'human'
 opt.dvc = torch.device(opt.dvc)
-
+# fmt: on
 def main():
     # Build env
     env = Sparrow(**vars(opt))  # for test
@@ -58,52 +60,59 @@ def main():
 
     # Play
     while True:
-        test_ep_steps, test_ep_r, test_arrival_rate = evaluate(env, agent, deterministic=False, turns=100)
-        print(f'ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps: {test_ep_steps}\n')
-
+        test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
+            env, agent, deterministic=False, turns=100
+        )
+        print(
+            f"ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps: {test_ep_steps}\n"
+        )
 
 
 def evaluate(envs, agent, deterministic, turns):
     step_collector, total_steps = torch.zeros(opt.N, device=opt.dvc), 0
-    r_collector, total_r  = torch.zeros(opt.N, device=opt.dvc), 0
+    r_collector, total_r = torch.zeros(opt.N, device=opt.dvc), 0
     arrived, finished = 0, 0
 
     agent.queue.clear()
     s, info = envs.reset()
     ct = torch.ones(opt.N, device=opt.dvc, dtype=torch.bool)
     while finished < turns:
-        '''单步state -> 时序窗口state:'''
+        """单步state -> 时序窗口state:"""
         agent.queue.append(s)  # 将s加入时序窗口队列
         TW_s = agent.queue.get()  # 取出队列所有数据及
         a = agent.select_action(TW_s, deterministic)
         s, r, dw, tr, info = envs.step(a)
 
-        '''解析dones, wins, deads, truncateds, consistents信号：'''
-        agent.queue.padding_with_done(~ct) # 根据上一时刻的ct去padding
+        """解析dones, wins, deads, truncateds, consistents信号："""
+        agent.queue.padding_with_done(~ct)  # 根据上一时刻的ct去padding
         dones = dw + tr
-        wins = (r == envs.AWARD)
-        dead_and_tr = dones^wins # dones-wins = deads and truncateds
+        wins = r == envs.AWARD
+        dead_and_tr = dones ^ wins  # dones-wins = deads and truncateds
         ct = ~dones
 
-        '''统计回合步数：'''
+        """统计回合步数："""
         step_collector += 1
-        total_steps += step_collector[wins].sum() # 到达,总步数加上真实步数
-        total_steps += (envs.max_ep_steps * dead_and_tr).sum() # 未到达,总步数加上回合最大步数
+        total_steps += step_collector[wins].sum()  # 到达,总步数加上真实步数
+        total_steps += (
+            envs.max_ep_steps * dead_and_tr
+        ).sum()  # 未到达,总步数加上回合最大步数
         step_collector[dones] = 0
 
-        '''统计总奖励：'''
+        """统计总奖励："""
         r_collector += r
         total_r += r_collector[dones].sum()
         r_collector[dones] = 0
 
-        '''统计到达率：'''
+        """统计到达率："""
         finished += dones.sum()
         arrived += wins.sum()
 
-    return int(total_steps.item() / finished.item()), \
-        round(total_r.item() / finished.item(), 2), \
-        round(arrived.item() / finished.item(), 2)
+    return (
+        int(total_steps.item() / finished.item()),
+        round(total_r.item() / finished.item(), 2),
+        round(arrived.item() / finished.item(), 2),
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

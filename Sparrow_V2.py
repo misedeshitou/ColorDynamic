@@ -1,12 +1,13 @@
-from collections import deque
-from scipy import ndimage
-import numpy as np
-import torch
 import copy
 import os
+from collections import deque
+
+import numpy as np
+import torch
+from scipy import ndimage
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import pygame
-
 
 '''
 Sparrow-V2: A Reinforcement Learning Friendly Mobile Robot Simulator for Dynamic Environments
@@ -270,7 +271,7 @@ class Sparrow():
                 if np.random.rand() < self.generate_rate: # 以概率在每个区域生成障碍物
 
                     pygame.draw.line(self.Static_obs_canvas, (1, 1, 1), cdnts[0,i,j], cdnts[1,i,j], width=2*self.Obs_R)
-
+                    # print(self.Obs_R)
         obs_np = pygame.surfarray.array3d(self.Static_obs_canvas)[:, :, 0]
         b_obs_np = ndimage.binary_erosion(obs_np, self.b_kernel).astype(obs_np.dtype)  # 腐蚀障碍物图像
         obs_np -= b_obs_np  # 减去腐蚀图像，提取轮廓线
@@ -557,10 +558,11 @@ class Sparrow():
             R_forward = (current_a==2) # 鼓励使用前进动作(提升移动速度、防止原地滞留) (N,) = 0 or 1
             R_retreat_slowdown = (current_a==5) + (current_a==6) # 惩罚后退和减速
         else:
-            # R_forward = (current_a[:,0] > 0.5)
-            R_forward = current_a[:,0].clip(0., 1.) # 向前的线速度越大，奖励越高
+            # R_forward = (currentjs_a[:,0] > 0.5)
+            # R_forward = current_a[:,0].clip(0., 1.) # 向前的线速度越大，奖励越高
+            R_forward=0
             R_retreat_slowdown = (current_a[:,0] <= 0)
-        self.reward_vec = 0.5 * R_distance + R_orientation * R_forward - 0.5 * R_retreat_slowdown - 0.5  # -0.5为了防止agent太猥琐，到处逗留
+        self.reward_vec = 0.5 * R_distance + R_orientation * R_forward - 0.5 * R_retreat_slowdown - 0.5  # -0.5为了防止agent太猥琐，到处逗留？什么玩意
         # self.reward_vec = (0.5 * R_distance + R_orientation * R_forward - 0.5 * R_retreat_slowdown - 0.25) / 1.25 # Normalized reward, maybe better
 
         self.reward_vec[self.win_vec] = self.AWARD
@@ -821,7 +823,7 @@ class Sparrow_PlayGround(Sparrow):
         self.target_point = init_xy
 
         self.d2target_now = (self.car_state[:, 0:2] - self.target_point).pow(2).sum(dim=-1).pow(0.5) # (N,), Reset后离目标点的距离,_reward_function和_Normalize会用
-
+        print(self.d2target_now)
         #步数初始化
         self.step_counter_vec.fill_(0)
 

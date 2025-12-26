@@ -1,6 +1,7 @@
 import math
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 show_animation = True  # 动画
 
@@ -26,9 +27,10 @@ class Config(object):
         self.speed_cost_gain = 1.0  # 速度代价增益
         self.robot_radius = 1.0  # [m]  # 机器人半径
 
-#机器人运动方程
-#在dt的时间间隔内，基于当前状态x、动作指令u=[v,w]，转移到下一个状态x，
-#两个状态更新机器人的位置(x,y)，以及其超向orientation。
+
+# 机器人运动方程
+# 在dt的时间间隔内，基于当前状态x、动作指令u=[v,w]，转移到下一个状态x，
+# 两个状态更新机器人的位置(x,y)，以及其超向orientation。
 def motion(x, u, dt):
     """
     :param x: 位置参数，在此叫做位置空间
@@ -36,7 +38,7 @@ def motion(x, u, dt):
     :param dt: 采样时间
     :return:
     """
-    #假设近似，机器人在dt的时间间隔内，默认为速度与转向速度（v,w）是常数
+    # 假设近似，机器人在dt的时间间隔内，默认为速度与转向速度（v,w）是常数
     # 速度更新公式比较简单，在极短时间内，车辆位移也变化较大
     # 采用圆弧求解如何？
     x[0] += u[0] * math.cos(x[2]) * dt  # x方向位移
@@ -58,23 +60,24 @@ def calc_dynamic_window(x, config):
     """
 
     # 车辆能够达到的最大最小速度
-    vs = [config.min_speed, config.max_speed,
-          -config.max_yawrate, config.max_yawrate]
+    vs = [config.min_speed, config.max_speed, -config.max_yawrate, config.max_yawrate]
 
     # 一个采样周期能够变化的最大最小速度
-    vd = [x[3] - config.max_accel * config.dt,
-          x[3] + config.max_accel * config.dt,
-          x[4] - config.max_dyawrate * config.dt,
-          x[4] + config.max_dyawrate * config.dt]
+    vd = [
+        x[3] - config.max_accel * config.dt,
+        x[3] + config.max_accel * config.dt,
+        x[4] - config.max_dyawrate * config.dt,
+        x[4] + config.max_dyawrate * config.dt,
+    ]
     #  print(Vs, Vd)
 
     # 求出两个速度集合的交集
-    vr = [max(vs[0], vd[0]), min(vs[1], vd[1]),
-          max(vs[2], vd[2]), min(vs[3], vd[3])]
+    vr = [max(vs[0], vd[0]), min(vs[1], vd[1]), max(vs[2], vd[2]), min(vs[3], vd[3])]
 
     return vr
 
-#产生运动轨迹
+
+# 产生运动轨迹
 def calc_trajectory(x_init, v, w, config):
     """
     预测3秒内的轨迹
@@ -108,7 +111,7 @@ def calc_to_goal_cost(trajectory, goal, config):
 
     dx = goal[0] - trajectory[-1, 0]
     dy = goal[1] - trajectory[-1, 1]
-    goal_dis = math.sqrt(dx ** 2 + dy ** 2)
+    goal_dis = math.sqrt(dx**2 + dy**2)
     cost = config.to_goal_cost_gain * goal_dis
 
     return cost
@@ -133,7 +136,7 @@ def calc_obstacle_cost(traj, ob, config):
             dx = traj[ii, 0] - ox
             dy = traj[ii, 1] - oy
 
-            r = math.sqrt(dx ** 2 + dy ** 2)
+            r = math.sqrt(dx**2 + dy**2)
             if r <= config.robot_radius:
                 return float("Inf")  # collision
 
@@ -162,27 +165,33 @@ def calc_final_input(x, u, vr, config, goal, ob):
 
     # evaluate all trajectory with sampled input in dynamic window
     # v,生成一系列速度，w，生成一系列角速度
-    for v in np.arange(vr[0], vr[1], config.v_reso): #对搜索空间dw中的v遍历
-        for w in np.arange(vr[2], vr[3], config.yawrate_reso):  #对搜索空间dw中的w遍历
+    for v in np.arange(vr[0], vr[1], config.v_reso):  # 对搜索空间dw中的v遍历
+        for w in np.arange(vr[2], vr[3], config.yawrate_reso):  # 对搜索空间dw中的w遍历
             # 计算出每一个可能的动作在未来一段时间内所产生的轨迹trajectory(v,w)
             trajectory = calc_trajectory(x_init, v, w, config)
 
             # calc cost
-            to_goal_cost = calc_to_goal_cost(trajectory, goal, config)  # trajectory与目标的欧式距离
-            speed_cost = config.speed_cost_gain * (config.max_speed - trajectory[-1, 3]) # v越大，该项越小，则效果越好；
-            ob_cost = calc_obstacle_cost(trajectory, ob, config)   # 返回的是距离的倒数，所以该值约小，距离越大，越好
+            to_goal_cost = calc_to_goal_cost(
+                trajectory, goal, config
+            )  # trajectory与目标的欧式距离
+            speed_cost = config.speed_cost_gain * (
+                config.max_speed - trajectory[-1, 3]
+            )  # v越大，该项越小，则效果越好；
+            ob_cost = calc_obstacle_cost(
+                trajectory, ob, config
+            )  # 返回的是距离的倒数，所以该值约小，距离越大，越好
             #  print(ob_cost)
 
             # 评价函数多种多样，看自己选择
             # 本文构造的是越小越好
-            final_cost = to_goal_cost + speed_cost + ob_cost # 总计代价，越小轨迹约好
+            final_cost = to_goal_cost + speed_cost + ob_cost  # 总计代价，越小轨迹约好
 
             # search minimum trajectory
             # 在所有动态窗口划出的动作空间(v,w)里，找到一个最好的动作，在这个动作下，未来预测的轨迹评价最好
             if min_cost >= final_cost:
                 min_cost = final_cost
-                min_u = [v, w] #代价最小的时候的运动空间
-                best_trajectory = trajectory  #记此时预测轨迹为最优轨迹
+                min_u = [v, w]  # 代价最小的时候的运动空间
+                best_trajectory = trajectory  # 记此时预测轨迹为最优轨迹
 
     # print(min_u)
     #  input()
@@ -202,9 +211,11 @@ def dwa_control(x, u, config, goal, ob):
     """
     # Dynamic Window control
 
-    vr = calc_dynamic_window(x, config) #计算动态窗口，即机器人的电机实际物理参数范围
+    vr = calc_dynamic_window(x, config)  # 计算动态窗口，即机器人的电机实际物理参数范围
 
-    u, trajectory = calc_final_input(x, u, vr, config, goal, ob) #选出最优轨迹搜索空间和速度空间
+    u, trajectory = calc_final_input(
+        x, u, vr, config, goal, ob
+    )  # 选出最优轨迹搜索空间和速度空间
 
     return u, trajectory
 
@@ -225,8 +236,14 @@ def plot_arrow(x, y, yaw, length=0.5, width=0.1):
     overhang：代表箭头头部三角形底边与箭头尾部直接的夹角关系，通过该参数可改变箭头的形状。
     默认值为0，即头部为三角形，当该值小于0时，头部为菱形，当值大于0时，头部为鱼尾状
     """
-    plt.arrow(x, y, length * math.cos(yaw), length * math.sin(yaw),
-              head_length=1.5 * width, head_width=width)
+    plt.arrow(
+        x,
+        y,
+        length * math.cos(yaw),
+        length * math.sin(yaw),
+        head_length=1.5 * width,
+        head_width=width,
+    )
     plt.plot(x, y)
 
 
@@ -241,30 +258,34 @@ def main():
 
     goal = np.array([10, 10])
 
-    #matrix二维矩阵 障碍物
-    ob = np.matrix([[-1, -1],
-                    [0, 2],
-                    [4.0, 2.0],
-                    [5.0, 4.0],
-                    [5.0, 5.0],
-                    [5.0, 6.0],
-                    [5.0, 9.0],
-                    [8.0, 9.0],
-                    [7.0, 9.0],
-                    [12.0, 12.0]
-                    ])
-    #ob = np.matrix([[0, 2]])
-    #ob = np.matrix([[2, 2]])
+    # matrix二维矩阵 障碍物
+    ob = np.matrix(
+        [
+            [-1, -1],
+            [0, 2],
+            [4.0, 2.0],
+            [5.0, 4.0],
+            [5.0, 5.0],
+            [5.0, 6.0],
+            [5.0, 9.0],
+            [8.0, 9.0],
+            [7.0, 9.0],
+            [12.0, 12.0],
+        ]
+    )
+    # ob = np.matrix([[0, 2]])
+    # ob = np.matrix([[2, 2]])
 
-    u = np.array([0.2, 0.0])  #初始速度空间(v,w)
-    config = Config()  #初始化物理运动参数
-    trajectory = np.array(x)  #初始轨迹空间
+    u = np.array([0.2, 0.0])  # 初始速度空间(v,w)
+    config = Config()  # 初始化物理运动参数
+    trajectory = np.array(x)  # 初始轨迹空间
 
     for i in range(1000):
+        u, best_trajectory = dwa_control(
+            x, u, config, goal, ob
+        )  # 获取最优速度空间和轨迹参数
 
-        u, best_trajectory = dwa_control(x, u, config, goal, ob) #获取最优速度空间和轨迹参数
-
-        x = motion(x, u, config.dt) #机器人运动方程 x为机器人状态空间
+        x = motion(x, u, config.dt)  # 机器人运动方程 x为机器人状态空间
         print(x)
 
         trajectory = np.vstack((trajectory, x))  # store state history
@@ -273,7 +294,10 @@ def main():
             draw_dynamic_search(best_trajectory, x, goal, ob)
 
         # check goal
-        if math.sqrt((x[0] - goal[0]) ** 2 + (x[1] - goal[1]) ** 2) <= config.robot_radius:
+        if (
+            math.sqrt((x[0] - goal[0]) ** 2 + (x[1] - goal[1]) ** 2)
+            <= config.robot_radius
+        ):
             print("Goal!!")
 
             break
@@ -314,9 +338,9 @@ def draw_path(trajectory, goal, ob, x):
     plot_arrow(x[0], x[1], x[2])
     plt.axis("equal")
     plt.grid(True)
-    plt.plot(trajectory[:, 0], trajectory[:, 1], 'r')
+    plt.plot(trajectory[:, 0], trajectory[:, 1], "r")
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

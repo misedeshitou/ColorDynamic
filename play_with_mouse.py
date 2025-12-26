@@ -1,10 +1,12 @@
-from Sparrow_V2 import Sparrow_PlayGround, str2bool
-from utils.Transqer import Transqer_agent
-import torch, pygame
 import argparse
 
+import pygame
+import torch
 
+from Sparrow_V2 import Sparrow_PlayGround, str2bool
+from utils.Transqer import Transqer_agent
 
+# fmt: off
 parser = argparse.ArgumentParser()
 '''Hyperparameter Setting for Transqer'''
 parser.add_argument('--ModelIdex', type=int, default=2450, help='which model(e.g. 2450k.pth) to load')
@@ -46,6 +48,8 @@ parser.add_argument('--compile', type=str2bool, default=False, help='whether to 
 opt = parser.parse_args()
 opt.render_mode = 'human'
 opt.dvc = torch.device(opt.dvc)
+# fmt: on
+
 
 def main():
     envs = Sparrow_PlayGround(**vars(opt))
@@ -70,11 +74,11 @@ def main():
         TW_s = agent.queue.get()  # 取出队列所有数据及
 
         if envs.win_vec:
-            a = 7*torch.ones((opt.N,), dtype=torch.long, device=opt.dvc) # stop
+            a = 7 * torch.ones((opt.N,), dtype=torch.long, device=opt.dvc)  # stop
         else:
             a = agent.select_action(TW_s, deterministic=False)
         s, r, dw, tr, info = envs.step(a)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

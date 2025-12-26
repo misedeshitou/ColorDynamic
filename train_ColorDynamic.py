@@ -1,13 +1,15 @@
-from multiprocessing.managers import BaseManager
-import torch.multiprocessing as mp
-from ASL.actor import actor_process
-from ASL.sharer import shared_data
-from ASL.learner import learner_process
-from Sparrow_V2 import str2bool
 import argparse
+from multiprocessing.managers import BaseManager
+
 import torch
+import torch.multiprocessing as mp
 
+from ASL.actor import actor_process
+from ASL.learner import learner_process
+from ASL.sharer import shared_data
+from Sparrow_V2 import str2bool
 
+# fmt: off
 if __name__ == '__main__':
     '''Hyperparameter Setting for DRL'''
     parser = argparse.ArgumentParser()
@@ -83,6 +85,7 @@ if __name__ == '__main__':
     opt.dvc = torch.device(opt.Env_dvc)
     opt.state_dim = 8+int(opt.ld_num/opt.ld_GN)
     opt.action_dim = 7
+# fmt: on
 
     # Set seed
     torch.manual_seed(opt.seed)
@@ -106,11 +109,3 @@ if __name__ == '__main__':
 
     for _ in range(len(processes)):
         processes[_].join()
-
-
-
-
-
-
-
-
