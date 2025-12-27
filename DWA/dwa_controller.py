@@ -133,7 +133,8 @@ class DWAController:
 
         # (c) 障碍物代价: 指数惩罚 + 硬碰撞保护
         if current_obs.shape[0] == 0:
-            norm_obs_cost = torch.zeros(samples.shape[0], device=self.dvc)
+            norm_obs_static_cost = torch.zeros(samples.shape[0], device=self.dvc)
+            norm_obs_dynamic_cost = torch.zeros(samples.shape[0], device=self.dvc)
         else:
             flat_trajs = all_trajectories.view(-1, 2)
             # 欧式距离
@@ -164,7 +165,7 @@ class DWAController:
             )
 
             # --- 穿模与硬碰撞保护(仅静态障碍物) ---
-            # 如果净距离小于 2cm（即将撞上或已穿模），强制代价设为极大值，压过 goal_cost
+            # 如果净距离小于 1cm（即将撞上或已穿模），强制代价设为极大值，压过 goal_cost
             norm_obs_static_cost[net_static_dist <= self.config.warning_static_dist] = (
                 1.0
             )
@@ -180,11 +181,6 @@ class DWAController:
             + self.config.dynamic_obstacle_cost_gain * norm_obs_dynamic_cost
         )
         # print(
-        #     self.config.goal_cost_gain * norm_goal_cost,
-        #     self.config.speed_cost_gain * norm_speed_cost,
-        #     self.config.obstacle_cost_gain * norm_obs_cost,
-        # )
-        # print(
         #     "final costs:",
         #     final_costs,
         #     "goal cost:",
@@ -195,23 +191,21 @@ class DWAController:
         #     self.config.static_obstacle_cost_gain * norm_obs_static_cost,
         #     "dynamic obs cost:",
         #     self.config.dynamic_obstacle_cost_gain * norm_obs_dynamic_cost,
+        # # )
+        # print("final costs:", final_costs)
+        # print("goal cost:", self.config.goal_cost_gain * norm_goal_cost)
+        # print("speed cost:", self.config.speed_cost_gain * norm_speed_cost)
+        # print(
+        #     "static obs cost:",
+        #     self.config.static_obstacle_cost_gain * norm_obs_static_cost,
         # )
-        print("final costs:", final_costs)
-        print("goal cost:", self.config.goal_cost_gain * norm_goal_cost)
-        print("speed cost:", self.config.speed_cost_gain * norm_speed_cost)
-        print(
-            "static obs cost:",
-            self.config.static_obstacle_cost_gain * norm_obs_static_cost,
-        )
-        print(
-            "dynamic obs cost:",
-            self.config.dynamic_obstacle_cost_gain * norm_obs_dynamic_cost,
-        )
+        # print(
+        #     "dynamic obs cost:",
+        #     self.config.dynamic_obstacle_cost_gain * norm_obs_dynamic_cost,
+        # )
         # 找到最优动作索引
         best_idx = torch.argmin(final_costs)
 
-        # 修改判断条件：看这个最优动作的障碍物代价是否触发了“硬保护”
-        # 注意：5.0 是你赋的值，0.3 是权重
         # if norm_obs_static_cost[best_idx] >= 5.0:
         #     best_u = np.array([0.0, 0.0])  # 发现最优解也会撞，急停
         # else:
