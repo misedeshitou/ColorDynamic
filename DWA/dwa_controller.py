@@ -13,21 +13,23 @@ class DWAController:
         def __init__(self):
             self.max_speed = 50.0  # cm/s
             self.min_speed = -50.0
-            self.max_yawrate = 2.0
-            self.max_accel = 10.0
-            self.max_dyawrate = 5.0
+            self.max_yawrate = 5.0
+            self.max_accel = 15.0
+            self.max_dyawrate = 10.0
             self.v_reso = 0.1  # m/s 速度分辨率
             self.yawrate_reso = 0.2  # rad/s 角速度分辨率
             self.dt = 0.1  # 采样周期
             self.predict_time = 1.0  # 预测时间
             self.goal_cost_gain = 0.2
             self.speed_cost_gain = 0.1
-            self.static_obstacle_cost_gain = 0.4
+            self.static_obstacle_cost_gain = 0.3
             self.dynamic_obstacle_cost_gain = 0.4
             self.robot_radius = 5.0
             self.window_size = 800  # 地图尺寸800cm x 800cm
-            self.safe_static_dist = 50.0  # 预警半径 cm
-            self.safe_dynamic_dist = 50.0  # 预警半径 cm
+            self.safe_static_dist = 60.0  # 安全半径 cm
+            self.safe_dynamic_dist = 50.0  # 安全半径 cm
+            self.warning_static_dist = 50.0  # 警告半径 cm
+            self.warning_dynamic_dist = 40.0  # 警告半径 cm
 
     def _prepare_velocity_samples(self):
         v_range = torch.arange(
@@ -163,7 +165,12 @@ class DWAController:
 
             # --- 穿模与硬碰撞保护(仅静态障碍物) ---
             # 如果净距离小于 2cm（即将撞上或已穿模），强制代价设为极大值，压过 goal_cost
-            norm_obs_static_cost[net_static_dist <= 15.0] = 5.0
+            norm_obs_static_cost[net_static_dist <= self.config.warning_static_dist] = (
+                1.0
+            )
+            # norm_obs_dynamic_cost[
+            #     net_dynamic_dist <= self.config.warning_dynamic_dist
+            # ] = 1.0
 
         # 5. 决策
         final_costs = (
