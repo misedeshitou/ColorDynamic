@@ -13,8 +13,8 @@ class DWAController:
         def __init__(self):
             self.max_speed = 50.0  # cm/s
             self.min_speed = -50.0
-            self.max_yawrate = 5.0
-            self.max_accel = 15.0
+            self.max_yawrate = 10.0
+            self.max_accel = 20.0
             self.max_dyawrate = 10.0
             self.v_reso = 0.1  # m/s 速度分辨率
             self.yawrate_reso = 0.2  # rad/s 角速度分辨率
