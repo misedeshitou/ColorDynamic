@@ -14,18 +14,20 @@ class DWAController:
             self.max_speed = 50.0  # cm/s
             self.min_speed = -50.0
             self.max_yawrate = 2.0
-            self.max_accel = 5.0
-            self.max_dyawrate = 2.0
+            self.max_accel = 10.0
+            self.max_dyawrate = 5.0
             self.v_reso = 0.1  # m/s 速度分辨率
             self.yawrate_reso = 0.2  # rad/s 角速度分辨率
             self.dt = 0.1  # 采样周期
             self.predict_time = 1.0  # 预测时间
-            self.goal_cost_gain = 0.6
+            self.goal_cost_gain = 0.2
             self.speed_cost_gain = 0.1
-            self.obstacle_cost_gain = 0.3
+            self.static_obstacle_cost_gain = 0.4
+            self.dynamic_obstacle_cost_gain = 0.4
             self.robot_radius = 5.0
             self.window_size = 800  # 地图尺寸800cm x 800cm
-            self.safe_dist = 20.0  # 预警半径 cm
+            self.safe_static_dist = 50.0  # 预警半径 cm
+            self.safe_dynamic_dist = 50.0  # 预警半径 cm
 
     def _prepare_velocity_samples(self):
         v_range = torch.arange(
@@ -60,7 +62,7 @@ class DWAController:
         #     " dynamic obs shape:",
         #     vec_dynamic_obs_P_shaped.shape,
         # )
-        """(N,O*P,2,1) -> (O*P,2)"""
+        """obs: (N,O*P,2,1) -> (O*P,2)"""
         current_static_obs = (
             vec_static_obs_P_shaped[env_idx].squeeze(-1).float().to(self.dvc)
         )
@@ -73,6 +75,7 @@ class DWAController:
         x_state = torch.tensor(x, device=self.dvc).float()
 
         # 2. 动态窗口 (Dynamic Window) 筛选
+        """car state: [dx, dy, theta, v_linear, v_angular]"""
         dw = [
             max(self.config.min_speed, x[3] - self.config.max_accel * self.config.dt),
             min(self.config.max_speed, x[3] + self.config.max_accel * self.config.dt),
@@ -131,43 +134,80 @@ class DWAController:
             norm_obs_cost = torch.zeros(samples.shape[0], device=self.dvc)
         else:
             flat_trajs = all_trajectories.view(-1, 2)
-            dist_matrix = torch.cdist(flat_trajs, current_obs)
-            min_dists_per_step = torch.min(dist_matrix, dim=1)[0]
-            min_dists_per_traj = torch.min(
-                min_dists_per_step.view(samples.shape[0], steps), dim=1
+            # 欧式距离
+            # dist_matrix = torch.cdist(flat_trajs, current_obs)
+            dist_static_matrix = torch.cdist(flat_trajs, current_static_obs)
+            min_dists_static_per_step = torch.min(dist_static_matrix, dim=1)[0]
+            min_dists_static_per_traj = torch.min(
+                min_dists_static_per_step.view(samples.shape[0], steps), dim=1
+            )[0]
+            dist_dynamic_matrix = torch.cdist(flat_trajs, current_dynamic_obs)
+            min_dists_dynamic_per_step = torch.min(dist_dynamic_matrix, dim=1)[0]
+            min_dists_dynamic_per_traj = torch.min(
+                min_dists_dynamic_per_step.view(samples.shape[0], steps), dim=1
             )[0]
 
             # 核心保护逻辑
-            net_dist = min_dists_per_traj - self.config.robot_radius
+            net_static_dist = min_dists_static_per_traj - self.config.robot_radius
+            net_dynamic_dist = min_dists_dynamic_per_traj - self.config.robot_radius
 
             # 指数衰减 (safe_dist/3 确保在 safe_dist 处代价约 0.05)
-            norm_obs_cost = torch.exp(
-                -torch.clamp(net_dist, min=0) / (self.config.safe_dist / 3.0)
+            norm_obs_static_cost = torch.exp(
+                -torch.clamp(net_static_dist, min=0)
+                / (self.config.safe_static_dist / 3.0)
+            )
+            norm_obs_dynamic_cost = torch.exp(
+                -torch.clamp(net_dynamic_dist, min=0)
+                / (self.config.safe_dynamic_dist / 3.0)
             )
 
-            # --- 穿模与硬碰撞保护 ---
+            # --- 穿模与硬碰撞保护(仅静态障碍物) ---
             # 如果净距离小于 2cm（即将撞上或已穿模），强制代价设为极大值，压过 goal_cost
-            norm_obs_cost[net_dist <= 15.0] = 5.0
+            norm_obs_static_cost[net_static_dist <= 15.0] = 5.0
 
         # 5. 决策
         final_costs = (
             self.config.goal_cost_gain * norm_goal_cost
             + self.config.speed_cost_gain * norm_speed_cost
-            + self.config.obstacle_cost_gain * norm_obs_cost
+            + self.config.static_obstacle_cost_gain * norm_obs_static_cost
+            + self.config.dynamic_obstacle_cost_gain * norm_obs_dynamic_cost
         )
         # print(
         #     self.config.goal_cost_gain * norm_goal_cost,
         #     self.config.speed_cost_gain * norm_speed_cost,
         #     self.config.obstacle_cost_gain * norm_obs_cost,
         # )
+        # print(
+        #     "final costs:",
+        #     final_costs,
+        #     "goal cost:",
+        #     self.config.goal_cost_gain * norm_goal_cost,
+        #     "speed cost:",
+        #     self.config.speed_cost_gain * norm_speed_cost,
+        #     "static obs cost:",
+        #     self.config.static_obstacle_cost_gain * norm_obs_static_cost,
+        #     "dynamic obs cost:",
+        #     self.config.dynamic_obstacle_cost_gain * norm_obs_dynamic_cost,
+        # )
+        print("final costs:", final_costs)
+        print("goal cost:", self.config.goal_cost_gain * norm_goal_cost)
+        print("speed cost:", self.config.speed_cost_gain * norm_speed_cost)
+        print(
+            "static obs cost:",
+            self.config.static_obstacle_cost_gain * norm_obs_static_cost,
+        )
+        print(
+            "dynamic obs cost:",
+            self.config.dynamic_obstacle_cost_gain * norm_obs_dynamic_cost,
+        )
         # 找到最优动作索引
         best_idx = torch.argmin(final_costs)
 
         # 修改判断条件：看这个最优动作的障碍物代价是否触发了“硬保护”
         # 注意：5.0 是你赋的值，0.3 是权重
-        if norm_obs_cost[best_idx] >= 5.0:
-            best_u = np.array([0.0, 0.0])  # 发现最优解也会撞，急停
-        else:
-            best_u = samples[best_idx].cpu().numpy()
-
+        # if norm_obs_static_cost[best_idx] >= 5.0:
+        #     best_u = np.array([0.0, 0.0])  # 发现最优解也会撞，急停
+        # else:
+        #     best_u = samples[best_idx].cpu().numpy()
+        best_u = samples[best_idx].cpu().numpy()
         return best_u, all_trajectories[best_idx].cpu().numpy()
