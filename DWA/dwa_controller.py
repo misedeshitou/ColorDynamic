@@ -45,9 +45,30 @@ class DWAController:
         grid_v, grid_w = torch.meshgrid(v_range, w_range, indexing="ij")
         self.all_samples = torch.stack([grid_v.flatten(), grid_w.flatten()], dim=1)
 
-    def plan(self, x, goal_tensor, vec_static_obs_P_shaped, env_idx=0):
+    def plan(
+        self,
+        x,
+        goal_tensor,
+        vec_static_obs_P_shaped,
+        vec_dynamic_obs_P_shaped,
+        env_idx=0,
+    ):
         # 1. 数据准备
-        current_obs = vec_static_obs_P_shaped[env_idx].squeeze(-1).float().to(self.dvc)
+        # print(
+        #     "static obs shape:",
+        #     vec_static_obs_P_shaped.shape,
+        #     " dynamic obs shape:",
+        #     vec_dynamic_obs_P_shaped.shape,
+        # )
+        """(N,O*P,2,1) -> (O*P,2)"""
+        current_static_obs = (
+            vec_static_obs_P_shaped[env_idx].squeeze(-1).float().to(self.dvc)
+        )
+        current_dynamic_obs = (
+            vec_dynamic_obs_P_shaped[env_idx].squeeze(-1).float().to(self.dvc)
+        )
+        current_obs = torch.cat([current_static_obs, current_dynamic_obs], dim=0)
+        # print("current obs shape:", current_obs.shape)
         goal_tensor = goal_tensor.to(self.dvc)
         x_state = torch.tensor(x, device=self.dvc).float()
 
@@ -77,7 +98,7 @@ class DWAController:
         t_range = torch.arange(1, steps + 1, device=self.dvc) * eval_dt
 
         v, w = samples[:, 0:1], samples[:, 1:2]
-        print(v, w)
+        # print(v, w)
         w_safe = torch.where(w.abs() < 1e-5, torch.ones_like(w) * 1e-5, w)
         current_yaw = x_state[2]
 
@@ -134,11 +155,11 @@ class DWAController:
             + self.config.speed_cost_gain * norm_speed_cost
             + self.config.obstacle_cost_gain * norm_obs_cost
         )
-        print(
-            self.config.goal_cost_gain * norm_goal_cost,
-            self.config.speed_cost_gain * norm_speed_cost,
-            self.config.obstacle_cost_gain * norm_obs_cost,
-        )
+        # print(
+        #     self.config.goal_cost_gain * norm_goal_cost,
+        #     self.config.speed_cost_gain * norm_speed_cost,
+        #     self.config.obstacle_cost_gain * norm_obs_cost,
+        # )
         # 找到最优动作索引
         best_idx = torch.argmin(final_costs)
 

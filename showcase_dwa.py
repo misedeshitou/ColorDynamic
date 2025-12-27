@@ -14,7 +14,7 @@ parser.add_argument('--action_type', type=str, default='Continuous', help='Actio
 parser.add_argument('--window_size', type=int, default=800, help='size of the map')
 parser.add_argument('--D', type=int, default=400, help='maximal local planning distance')
 parser.add_argument('--N', type=int, default=1, help='number of vectorized environments')
-parser.add_argument('--O', type=int, default=0, help='number of dynamics obstacles in each environment')
+parser.add_argument('--O', type=int, default=15, help='number of dynamics obstacles in each environment')
 parser.add_argument('--RdON', type=str2bool, default=False, help='whether to randomize the Number of dynamic obstacles')
 parser.add_argument('--ScOV', type=str2bool, default=False, help='whether to scale the maximal velocity of dynamic obstacles')
 parser.add_argument('--RdOV', type=str2bool, default=True, help='whether to randomize the Velocity of dynamic obstacles')
@@ -76,12 +76,16 @@ def dwa_control(env, controller, env_idx=0):
 
     # 3. 调用向量化 Plan
     # self.vec_dynamic_obs_P_shaped(N, O * P, 2, 1)
-    u, best_traj = controller.plan(
-        x, goal_tensor, env.vec_static_obs_P_shaped, env_idx=env_idx
-    )
-    #    u, best_traj = controller.plan(
-    #     x, goal_tensor, env.vec_dynamic_obs_P_shaped, env_idx=env_idx
+    # u, best_traj = controller.plan(
+    #     x, goal_tensor, env.vec_static_obs_P_shaped, env_idx=env_idx
     # )
+    u, best_traj = controller.plan(
+        x,
+        goal_tensor,
+        env.vec_static_obs_P_shaped,
+        env.vec_dynamic_obs_P_shaped,
+        env_idx=env_idx,
+    )
 
     # 4. 动作归一化 (DWA 输出的是物理速度，环境通常需要 -1 ~ 1)
     v_norm = u[0] / env.v_linear_max
