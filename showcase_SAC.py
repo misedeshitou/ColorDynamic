@@ -3,34 +3,30 @@ import argparse
 import torch
 
 from Sparrow_V2 import Sparrow, str2bool
-from utils.DQN import DQN_agent, evaluate_policy
+from utils.SAC import SAC_agent
+from utils.utils_SAC import evaluate_policy
 
 # fmt: off
 parser = argparse.ArgumentParser()
-'''Hyperparameter Setting for DQN'''
-parser.add_argument('--Env_dvc', type=str, default='cuda:0', help='running device for Sparrow Env')
-parser.add_argument('--EnvIdex', type=int, default=0, help='CP-v1, LLd-v2')
-parser.add_argument('--write', type=str2bool, default=True, help='Use SummaryWriter to record the training')
+'''Hyperparameter Setting for SAC'''
+parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
+parser.add_argument('--ModelIdex', type=int, default=50, help='which model to load')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
-parser.add_argument('--Max_train_steps', type=int, default=int(1e6), help='Max training steps')
-parser.add_argument('--save_interval', type=int, default=int(50e3), help='Model saving interval, in steps.')
-parser.add_argument('--eval_interval', type=int, default=int(2e3), help='Model evaluating interval, in steps.')
-parser.add_argument('--random_steps', type=int, default=int(3e3), help='steps for random policy to explore')
+parser.add_argument('--Max_train_steps', type=int, default=4e5, help='Max training steps')
+parser.add_argument('--save_interval', type=int, default=1e5, help='Model saving interval, in steps.')
+parser.add_argument('--eval_interval', type=int, default=2e3, help='Model evaluating interval, in steps.')
+parser.add_argument('--random_steps', type=int, default=1e4, help='steps for random policy to explore')
 parser.add_argument('--update_every', type=int, default=50, help='training frequency')
 
 parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
-parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
-parser.add_argument('--batch_size', type=int, default=256, help='lenth of sliced trajectory')
-parser.add_argument('--exp_noise', type=float, default=0.2, help='explore noise')
-parser.add_argument('--noise_decay', type=float, default=0.99, help='decay rate of explore noise')
-parser.add_argument('--Double', type=str2bool, default=True, help='Whether to use Double Q-learning')
-parser.add_argument('--Duel', type=str2bool, default=True, help='Whether to use Duel networks')
-
-parser.add_argument('--ModelIdex', type=int, default=50000, help='which model(e.g. DQN_1000.pth) to load')
-parser.add_argument('--net_width', type=int, default=200, help='Linear net width')
+parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape')
+parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
+parser.add_argument('--batch_size', type=int, default=256, help='batch size')
+parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
+parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
 
 '''Hyperparameter Setting for Sparrow'''
 parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
@@ -75,7 +71,7 @@ def main():
     opt.action_dim = env.action_dim
 
     # Init agent
-    agent = DQN_agent(**vars(opt))
+    agent = SAC_agent(**vars(opt))
     agent.load(opt.ModelIdex)
 
     # Play
