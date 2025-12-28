@@ -1,10 +1,10 @@
 import copy
+import time
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import time
 
 
 def build_net(layer_shape, activation, output_activation):
@@ -36,9 +36,6 @@ class Duel_Q_Net(nn.Module):
         self.A = nn.Linear(hid_shape[-1], action_dim)
         # build vectorized envs and actor
         # self.envs = Sparrow(**vars(opt))
-        # 新增计时变量
-        self.timer_steps = 0
-        self.timer_start = 0.0
 
     def forward(self, s):
         s = self.hidden(s)
@@ -56,6 +53,9 @@ class DQN_agent(object):
         self.__dict__.update(kwargs)
         self.tau = 0.005
         self.replay_buffer = ReplayBuffer(self.state_dim, self.dvc, max_size=int(1e6))
+        # 新增计时变量
+        self.timer_steps = 0
+        self.timer_start = 0.0
         if self.Duel:
             self.q_net = Duel_Q_Net(
                 self.state_dim, self.action_dim, (self.net_width, self.net_width)
@@ -73,21 +73,26 @@ class DQN_agent(object):
     def select_action(self, state, deterministic):
         with torch.no_grad():
             # 确保 state 是 tensor 且在正确的设备上
-            state = torch.as_tensor(state, dtype=torch.float32, device=self.dvc)         
+            state = torch.as_tensor(state, dtype=torch.float32, device=self.dvc)
             # 神经网络推理
-            q_values = self.q_net(state) # 得到 (N, action_dim)
-            
+            q_values = self.q_net(state)  # 得到 (N, action_dim)
+
             if deterministic:
-                a = q_values.argmax(dim=-1) 
+                a = q_values.argmax(dim=-1)
             else:
                 # 批量 e-greedy 探索
                 if np.random.rand() < self.exp_noise:
                     # 生成 (N,) 的随机张量
-                    a = torch.randint(low=0, high=self.action_dim, size=(state.shape[0],), device=self.dvc)
+                    a = torch.randint(
+                        low=0,
+                        high=self.action_dim,
+                        size=(state.shape[0],),
+                        device=self.dvc,
+                    )
                 else:
                     a = q_values.argmax(dim=-1)
-                    
-        return a 
+
+        return a
 
     def train(self):
         # 1. 启动计时 (在第一次进入 train 时记录开始时间)
@@ -125,23 +130,22 @@ class DQN_agent(object):
 
         # 2. 预估逻辑
         self.timer_steps += 1
-        
+
         if self.timer_steps == 100:
             end_time = time.time()
             total_time_100 = end_time - self.timer_start
             avg_time_per_step = total_time_100 / 100
-            
+
             # 计算 200k 次的预估时间
             est_200k_sec = avg_time_per_step * 200000
-            
-            print(f"\n" + "="*40)
-            print(f"计时报告 (基于前 100 次训练):")
-            print(f"平均单步训练耗时: {avg_time_per_step*1000:.3f} ms")
-            print(f"预估训练 200k 次所需时间:")
-            print(f"  - 秒: {est_200k_sec:.2f} s")
+
+            print("\n" + "=" * 40)
+            print("计时报告 (基于前 100 次训练):")
+            print(f"平均单步训练耗时: {avg_time_per_step * 1000:.3f} ms")
+            print("预估训练 200k 次所需时间:")
             print(f"  - 分钟: {est_200k_sec / 60:.2f} min")
-            print(f"  - 小时: {est_200k_sec / 3600:.42f} h")
-            print("="*40 + "\n")
+            print(f"  - 小时: {est_200k_sec / 3600:.2f} h")
+            print("=" * 40 + "\n")
 
     def save(self, steps):
         torch.save(self.q_net.state_dict(), "./model/{}_{}.pth".format("DQN", steps))
@@ -165,30 +169,31 @@ class DQN_agent(object):
 def evaluate_policy(env, agent, turns=3):
     # env.N 是并行的小车数量
     total_scores = torch.zeros(env.N, device=env.dvc)
-    
+
     for j in range(turns):
         s, info = env.reset()
         # 记录哪些环境已经结束
         env_dones = torch.zeros(env.N, dtype=torch.bool, device=env.dvc)
-        
+
         # 只要还有没结束的环境，就继续循环
         while not env_dones.all():
             # 这里返回的是 (N,) 的 GPU Tensor
             a = agent.select_action(s, deterministic=True)
-            
+
             # 执行步进
             s_next, r, dw, tr, info = env.step(a)
-            
+
             # r, dw, tr 此时应该是 (N,) 的 Tensor
             # 只累加那些还没结束的环境的分数
             total_scores += r * (~env_dones)
-            
+
             # 更新结束状态
             env_dones = env_dones | dw | tr
             s = s_next
-            
+
     # 返回所有环境、所有轮次的平均分
     return int(total_scores.mean().item() / turns)
+
 
 # def evaluate(envs, agent, deterministic, turns):
 #     step_collector, total_steps = torch.zeros(opt.N, device=opt.dvc), 0
