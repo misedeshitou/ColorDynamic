@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import time
 
 
 def build_net(layer_shape, activation, output_activation):
@@ -35,6 +36,9 @@ class Duel_Q_Net(nn.Module):
         self.A = nn.Linear(hid_shape[-1], action_dim)
         # build vectorized envs and actor
         # self.envs = Sparrow(**vars(opt))
+        # 新增计时变量
+        self.timer_steps = 0
+        self.timer_start = 0.0
 
     def forward(self, s):
         s = self.hidden(s)
@@ -86,6 +90,10 @@ class DQN_agent(object):
         return a 
 
     def train(self):
+        # 1. 启动计时 (在第一次进入 train 时记录开始时间)
+        if self.timer_steps == 0:
+            self.timer_start = time.time()
+
         s, a, r, s_next, dw = self.replay_buffer.sample(self.batch_size)
 
         """Compute the target Q value"""
@@ -113,6 +121,27 @@ class DQN_agent(object):
             target_param.data.copy_(
                 self.tau * param.data + (1 - self.tau) * target_param.data
             )
+        # --- 训练逻辑结束 ---
+
+        # 2. 预估逻辑
+        self.timer_steps += 1
+        
+        if self.timer_steps == 100:
+            end_time = time.time()
+            total_time_100 = end_time - self.timer_start
+            avg_time_per_step = total_time_100 / 100
+            
+            # 计算 200k 次的预估时间
+            est_200k_sec = avg_time_per_step * 200000
+            
+            print(f"\n" + "="*40)
+            print(f"计时报告 (基于前 100 次训练):")
+            print(f"平均单步训练耗时: {avg_time_per_step*1000:.3f} ms")
+            print(f"预估训练 200k 次所需时间:")
+            print(f"  - 秒: {est_200k_sec:.2f} s")
+            print(f"  - 分钟: {est_200k_sec / 60:.2f} min")
+            print(f"  - 小时: {est_200k_sec / 3600:.42f} h")
+            print("="*40 + "\n")
 
     def save(self, steps):
         torch.save(self.q_net.state_dict(), "./model/{}_{}.pth".format("DQN", steps))

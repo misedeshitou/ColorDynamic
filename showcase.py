@@ -8,7 +8,7 @@ from utils.Transqer import Transqer_agent
 # fmt: off
 parser = argparse.ArgumentParser()
 '''Hyperparameter Setting for Transqer'''
-parser.add_argument('--ModelIdex', type=int, default=2450, help='which model(e.g. 2450k.pth) to load')
+parser.add_argument('--ModelIdex', type=int, default=4595, help='which model(e.g. 2450k.pth) to load')
 parser.add_argument('--net_width', type=int, default=64, help='Linear net width')
 parser.add_argument('--T', type=int, default=10, help='length of time window')
 parser.add_argument('--H', type=int, default=8, help='Number of Head')

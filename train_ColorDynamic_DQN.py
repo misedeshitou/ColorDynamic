@@ -18,8 +18,8 @@ parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pret
 parser.add_argument('--ModelIdex', type=int, default=100, help='which model to load')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
-parser.add_argument('--Max_train_steps', type=int, default=int(1e6), help='Max training steps')
-parser.add_argument('--save_interval', type=int, default=int(50e3), help='Model saving interval, in steps.')
+parser.add_argument('--Max_train_steps', type=int, default=int(1e8), help='Max training steps')
+parser.add_argument('--save_interval', type=int, default=int(200e3), help='Model saving interval, in steps.')
 parser.add_argument('--eval_interval', type=int, default=int(2e3), help='Model evaluating interval, in steps.')
 parser.add_argument('--random_steps', type=int, default=int(3e3), help='steps for random policy to explore')
 parser.add_argument('--update_every', type=int, default=50, help='training frequency')

@@ -29,7 +29,7 @@ parser.add_argument('--noise_decay', type=float, default=0.99, help='decay rate 
 parser.add_argument('--Double', type=str2bool, default=True, help='Whether to use Double Q-learning')
 parser.add_argument('--Duel', type=str2bool, default=True, help='Whether to use Duel networks')
 
-parser.add_argument('--ModelIdex', type=int, default=1000, help='which model(e.g. DQN_1000.pth) to load')
+parser.add_argument('--ModelIdex', type=int, default=50000, help='which model(e.g. DQN_1000.pth) to load')
 parser.add_argument('--net_width', type=int, default=200, help='Linear net width')
 
 '''Hyperparameter Setting for Sparrow'''
