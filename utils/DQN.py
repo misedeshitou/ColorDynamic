@@ -56,6 +56,7 @@ class DQN_agent(object):
         # 新增计时变量
         self.timer_steps = 0
         self.timer_start = 0.0
+        
         if self.Duel:
             self.q_net = Duel_Q_Net(
                 self.state_dim, self.action_dim, (self.net_width, self.net_width)

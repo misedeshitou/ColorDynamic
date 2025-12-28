@@ -1,9 +1,11 @@
 import copy
+import time
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
+
 from utils.utils_SAC import Double_Q_Net, Policy_Net, ReplayBuffer
 
 
@@ -27,6 +29,10 @@ class SAC_agent:
             self.q_critic.parameters(), lr=self.lr
         )
         self.q_critic_target = copy.deepcopy(self.q_critic)
+        # 新增计时变量
+        self.timer_steps = 0
+        self.timer_start = 0.0
+
         for p in self.q_critic_target.parameters():
             p.requires_grad = False
 
@@ -40,19 +46,31 @@ class SAC_agent:
 
     def select_action(self, state, deterministic):
         with torch.no_grad():
-            state = torch.FloatTensor(state[np.newaxis, :]).to(
-                self.dvc
-            )  # from (s_dim,) to (1, s_dim)
-            probs = self.actor(state)
+            state = torch.as_tensor(state, dtype=torch.float32, device=self.dvc)
+            probs = self.actor(state)  # 假设输出形状为 (N, action_dim)
+
             if deterministic:
-                a = probs.argmax(-1).item()
+                # 取概率最大的动作
+                a = probs.argmax(-1)  # 形状为 (N,)
             else:
-                a = Categorical(probs).sample().item()
+                # 按照概率分布采样
+                dist = Categorical(probs)
+                a = dist.sample()  # 形状为 (N,)
+
             return a
 
     def train(self):
+        # 1. 启动计时 (在第一次进入 train 时记录开始时间)
+        if self.timer_steps == 0:
+            self.timer_start = time.time()
         s, a, r, s_next, dw = self.replay_buffer.sample(self.batch_size)
-
+        # --- 防错保险：确保所有张量维度对齐且在正确设备上 ---
+        a = a.view(-1, 1).long().to(self.dvc)
+        r = r.view(-1, 1).to(self.dvc)
+        dw = dw.view(-1, 1).to(self.dvc)
+        s = s.to(self.dvc)
+        s_next = s_next.to(self.dvc)
+        # ----------------------------------------------
         # ------------------------------------------ Train Critic ----------------------------------------#
         """Compute the target soft Q value"""
         with torch.no_grad():
@@ -109,6 +127,24 @@ class SAC_agent:
             target_param.data.copy_(
                 self.tau * param.data + (1 - self.tau) * target_param.data
             )
+
+        self.timer_steps += 1
+        # --- 训练逻辑结束 ---
+        if self.timer_steps == 100:
+            end_time = time.time()
+            total_time_100 = end_time - self.timer_start
+            avg_time_per_step = total_time_100 / 100
+
+            # 计算 200k 次的预估时间
+            est_200k_sec = avg_time_per_step * 200000
+
+            print("\n" + "=" * 40)
+            print("计时报告 (基于前 100 次训练):")
+            print(f"平均单步训练耗时: {avg_time_per_step * 1000:.3f} ms")
+            print("预估训练 200k 次所需时间:")
+            print(f"  - 分钟: {est_200k_sec / 60:.2f} min")
+            print(f"  - 小时: {est_200k_sec / 3600:.2f} h")
+            print("=" * 40 + "\n")
 
     def save(self, timestep):
         torch.save(self.actor.state_dict(), f"./model/sacd_actor_{timestep}.pth")
