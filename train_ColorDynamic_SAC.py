@@ -143,6 +143,7 @@ def main():
                 agent.save(int(total_steps / 1000))
     env.close()
     eval_env.close()
+    print("Training Finished.")
 
 
 if __name__ == "__main__":
