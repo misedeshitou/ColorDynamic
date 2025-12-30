@@ -3,7 +3,7 @@ import argparse
 import torch
 
 from Sparrow_V2 import Sparrow, str2bool
-from utils.SAC import SAC_agent
+from utils.TransSAC import TransSAC_agent
 from utils.utils_SAC import evaluate_policy
 
 # fmt: off
@@ -12,21 +12,27 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
-parser.add_argument('--ModelIdex', type=int, default=500, help='which model to load')
+parser.add_argument('--ModelIndex', type=int, default=50, help='which model to load')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
-parser.add_argument('--Max_train_steps', type=int, default=4e5, help='Max training steps')
-parser.add_argument('--save_interval', type=int, default=1e5, help='Model saving interval, in steps.')
+parser.add_argument('--max_train_steps', type=int, default=5e7, help='Max training steps')
+parser.add_argument('--save_interval', type=int, default=5e4, help='Model saving interval, in steps.')
 parser.add_argument('--eval_interval', type=int, default=2e3, help='Model evaluating interval, in steps.')
 parser.add_argument('--random_steps', type=int, default=1e4, help='steps for random policy to explore')
 parser.add_argument('--update_every', type=int, default=50, help='training frequency')
 
 parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
+parser.add_argument('--net_width', type=int, default=64, help='Linear net width')
 parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape')
 parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
 parser.add_argument('--batch_size', type=int, default=256, help='batch size')
 parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
 parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
+
+# Transqer configuration
+parser.add_argument('--T', type=int, default=10, help='length of time window')
+parser.add_argument('--H', type=int, default=8, help='Number of Head')
+parser.add_argument('--L', type=int, default=3, help='Number of Transformer Encoder Layers')
 
 '''Hyperparameter Setting for Sparrow'''
 parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
@@ -71,13 +77,14 @@ def main():
     opt.action_dim = env.action_dim
 
     # Init agent
-    agent = SAC_agent(**vars(opt))
-    agent.load(opt.ModelIdex)
+    agent = TransSAC_agent(**vars(opt))
+    agent.load(opt.ModelIndex)
 
     # Play
     while True:
         scores = evaluate_policy(env, agent, turns=100)
         print(f"ArrivalRate:{scores[2]}, Reward:{scores[1]}, Steps: {scores[0]}\n")
+
 
 if __name__ == "__main__":
     main()
