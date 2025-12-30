@@ -6,6 +6,9 @@ class TimeWindowQueue_NTD:
         self.device = device
         self.padding = padding
         self.T = T
+        # N: Batch Size (并行环境的数量)。
+        # T: Time Window (时间窗口长度，即 Transformer 能看到的历史长度)。
+        # D: Dimension (每个时间步数据的特征维度)。
 
         # 初始化缓冲区，形状为 (N, T, D), 即transformer(batch_first=True)要求的(batch_size, seq_len, emb_dim)
         if padding == -1:

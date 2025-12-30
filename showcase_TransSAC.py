@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
-parser.add_argument('--ModelIndex', type=int, default=500, help='which model to load')
+parser.add_argument('--ModelIdex', type=int, default=500, help='which model to load')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--Max_train_steps', type=int, default=4e5, help='Max training steps')
@@ -72,13 +72,12 @@ def main():
 
     # Init agent
     agent = SAC_agent(**vars(opt))
-    agent.load(opt.ModelIndex)
+    agent.load(opt.ModelIdex)
 
     # Play
     while True:
         scores = evaluate_policy(env, agent, turns=100)
         print(f"ArrivalRate:{scores[2]}, Reward:{scores[1]}, Steps: {scores[0]}\n")
-
 
 if __name__ == "__main__":
     main()
