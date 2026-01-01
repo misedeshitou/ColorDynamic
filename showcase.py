@@ -61,7 +61,7 @@ def main():
     # Play
     while True:
         test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
-            env, agent, deterministic=False, turns=100
+            env, agent, deterministic=False, turns=3
         )
         print(
             f"ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps: {test_ep_steps}\n"

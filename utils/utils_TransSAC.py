@@ -54,6 +54,7 @@ class Double_Q_Net(nn.Module):
         temporal_ld = self.pe(temporal_ld)  # (N,T,d)
 
         temporal_ld_feat1 = self.trans_q1_encoder(temporal_ld)  # (N,T,d)
+        # 指定维度求平均
         temporal_ld_feat1 = temporal_ld_feat1.mean(dim=1)  # (N,T,d) ->  (N,d)
 
         temporal_ld_feat2 = self.trans_q2_encoder(temporal_ld)  # (N,T,d)
@@ -88,7 +89,7 @@ class Policy_Net(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.d,
             nhead=opt.H,
-            dropout=0,
+            dropout=0,  # 每个神经元始终处于激活状态
             dim_feedforward=opt.net_width,
             batch_first=True,
         )
