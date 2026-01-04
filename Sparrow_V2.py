@@ -898,15 +898,9 @@ class Sparrow:
             )  # 鼓励使用前进动作(提升移动速度、防止原地滞留) (N,) = 0 or 1
             R_retreat_slowdown = (current_a == 5) + (current_a == 6)  # 惩罚后退和减速
         else:
-            if current_a.dim() == 1:
-                # 如果是 DWA 传进来的 [v, w]，直接取第一个元素
-                v_linear = current_a[0]
-            else:
-                # 如果是 RL 传进来的 [N, 2]，取第一列
-                v_linear = current_a[:, 0]
+            R_forward = current_a[:, 0].clip(0.0, 1.0)  # 向前的线速度越大，奖励越高
+            R_retreat_slowdown = current_a[:, 0] <= 0
 
-            R_forward = v_linear > 0.5
-            R_retreat_slowdown = v_linear <= 0
         self.reward_vec = (
             0.5 * R_distance
             + R_orientation * R_forward
@@ -960,7 +954,7 @@ class Sparrow:
             # 如果输入是 (N, H, W)，view 之后就是 (N, H*W)
             c_a = current_a.reshape(batch_size, -1)
             r_a = real_a.reshape(batch_size, -1)
-            obs = observation.reshape(batch_size, -1) 
+            obs = observation.reshape(batch_size, -1)
 
             # 在维度 1 (特征轴) 上拼接
             return torch.cat((c_a, r_a, obs), dim=1)
