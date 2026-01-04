@@ -15,7 +15,13 @@ class SAC_agent:
         self.__dict__.update(kwargs)
         self.tau = 0.005
         self.H_mean = 0
-        self.replay_buffer = ReplayBuffer(self.state_dim, self.action_dim, self.action_type, self.dvc, max_size=int(1e6))
+        self.replay_buffer = ReplayBuffer(
+            self.state_dim,
+            self.action_dim,
+            self.action_type,
+            self.dvc,
+            max_size=int(1e6),
+        )
 
         self.actor = Policy_Net(self.state_dim, self.action_dim, self.hid_shape).to(
             self.dvc
@@ -44,20 +50,40 @@ class SAC_agent:
             )
             self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=self.lr)
 
+    # def select_action(self, state, deterministic):
+    #     with torch.no_grad():
+    #         state = torch.as_tensor(state, dtype=torch.float32, device=self.dvc)
+    #         probs = self.actor(state)  # 假设输出形状为 (N, action_dim)
+
+    #         if deterministic:
+    #             # 取概率最大的动作
+    #             a = probs.argmax(-1)  # 形状为 (N,)
+    #         else:
+    #             # 按照概率分布采样
+    #             dist = Categorical(probs)
+    #             a = dist.sample()  # 形状为 (N,)
+
+    #         return a
     def select_action(self, state, deterministic):
         with torch.no_grad():
             state = torch.as_tensor(state, dtype=torch.float32, device=self.dvc)
-            probs = self.actor(state)  # 假设输出形状为 (N, action_dim)
 
-            if deterministic:
-                # 取概率最大的动作
-                a = probs.argmax(-1)  # 形状为 (N,)
+            if self.action_type == "Discrete":
+                probs = self.actor(state)
+                if deterministic:
+                    return probs.argmax(-1)
+                else:
+                    return Categorical(probs).sample()
             else:
-                # 按照概率分布采样
-                dist = Categorical(probs)
-                a = dist.sample()  # 形状为 (N,)
-
-            return a
+                # --- 连续动作处理 ---
+                # 假设你的 actor 在连续模式下直接输出动作数值 (N, action_dim)
+                # 或者输出分布进行采样
+                action = self.actor(state)
+                if not deterministic:
+                    # 给动作添加一些噪声用于探索，或者从正态分布中采样
+                    # SAC 通常在内部完成采样，这里假设 actor 输出的就是动作
+                    pass
+                return action  # 确保这里返回的是 (N, 2)
 
     def train(self):
         # 1. 启动计时 (在第一次进入 train 时记录开始时间)
@@ -70,6 +96,7 @@ class SAC_agent:
         dw = dw.view(-1, 1).to(self.dvc)
         s = s.to(self.dvc)
         s_next = s_next.to(self.dvc)
+        print(f"DEBUG: s shape: {s.shape}, a shape: {a.shape}, batch_size: {self.batch_size}")
         # ----------------------------------------------
         # ------------------------------------------ Train Critic ----------------------------------------#
         """Compute the target soft Q value"""

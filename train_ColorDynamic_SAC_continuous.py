@@ -6,30 +6,56 @@ import os
 import torch
 
 from Sparrow_V2 import Sparrow, str2bool
-from utils.SAC import SAC_agent
+from utils.SAC_continuous import SAC_continuous
+from utils.utils_SAC_continuous import (
+    Reward_adapter,
+)
 
 # fmt: off
 '''Hyperparameter Setting for DRL'''
 parser = argparse.ArgumentParser()
 # parser.add_argument('--EnvIdex', type=int, default=0, help='CP-v1, LLd-v2')
+# parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
+# parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
+# parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
+# parser.add_argument('--ModelIdex', type=int, default=2000, help='which model to load')
+
+# parser.add_argument('--seed', type=int, default=0, help='random seed')
+# parser.add_argument('--Max_train_steps', type=int, default=1e8, help='Max training steps')
+# parser.add_argument('--save_interval', type=int, default=1e5, help='Model saving interval, in steps.')
+# parser.add_argument('--eval_interval', type=int, default=2e3, help='Model evaluating interval, in steps.')
+# parser.add_argument('--random_steps', type=int, default=4, help='steps for random policy to explore')
+# parser.add_argument('--update_every', type=int, default=50, help='training frequency')
+
+# parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
+# parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape')
+# parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
+# parser.add_argument('--batch_size', type=int, default=256, help='batch size')
+# parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
+# parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
+'''Hyperparameter Setting for SAC'''
+# parser.add_argument('--dvc', type=str, default='cuda', help='running device: cuda or cpu')
+parser.add_argument('--EnvIdex', type=int, default=0, help='PV1, Lch_Cv2, Humanv4, HCv4, BWv3, BWHv3')
 parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
-parser.add_argument('--ModelIdex', type=int, default=2000, help='which model to load')
+parser.add_argument('--ModelIdex', type=int, default=100, help='which model to load')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
-parser.add_argument('--Max_train_steps', type=int, default=1e8, help='Max training steps')
-parser.add_argument('--save_interval', type=int, default=1e5, help='Model saving interval, in steps.')
-parser.add_argument('--eval_interval', type=int, default=2e3, help='Model evaluating interval, in steps.')
+parser.add_argument('--Max_train_steps', type=int, default=int(5e6), help='Max training steps')
+parser.add_argument('--save_interval', type=int, default=int(100e3), help='Model saving interval, in steps.')
+parser.add_argument('--eval_interval', type=int, default=int(2.5e3), help='Model evaluating interval, in steps.')
+# parser.add_argument('--update_every', type=int, default=50, help='Training Fraquency, in stpes')
 parser.add_argument('--random_steps', type=int, default=4, help='steps for random policy to explore')
 parser.add_argument('--update_every', type=int, default=50, help='training frequency')
 
 parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
-parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape')
-parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
-parser.add_argument('--batch_size', type=int, default=256, help='batch size')
-parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
-parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
+parser.add_argument('--net_width', type=int, default=256, help='Hidden net width, s_dim-400-300-a_dim')
+parser.add_argument('--a_lr', type=float, default=3e-4, help='Learning rate of actor')
+parser.add_argument('--c_lr', type=float, default=3e-4, help='Learning rate of critic')
+parser.add_argument('--batch_size', type=int, default=256, help='batch_size of training')
+parser.add_argument('--alpha', type=float, default=0.12, help='Entropy coefficient')
+parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive_alpha or Not')
 
 '''Hyperparameter Setting for Sparrow'''
 parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
@@ -79,7 +105,7 @@ opt.action_dim = 2
 # Create Env
 env = Sparrow(**vars(opt))  # for train
 eval_env = Sparrow(**vars(opt))  # for eval
-agent = SAC_agent(**vars(opt))
+agent = SAC_continuous(**vars(opt))
 
 
 def random_action_test(discrete=True):
@@ -96,7 +122,7 @@ def random_action_test(discrete=True):
         device = env.dvc
         # 生成一个 (N, 2) 的随机张量，值在 [-1, 1] 之间
         # torch.rand 生成 [0, 1]，通过 *2 - 1 映射到 [-1, 1]
-        random_action = torch.rand((N, 2), device=device) * 2 - 1
+        random_action = torch.rand((N, opt.action_dim), device=device) * 2 - 1
 
     # 执行环境步进
     # s_next, r, terminated, truncated, info = env.step(random_action)
@@ -123,29 +149,61 @@ def main():
 
         """Interact & trian"""
         while not done.all():
-            # e-greedy exploration
+            # # e-greedy exploration
+            # if total_steps < opt.random_steps:
+            #     a = random_action_test(discrete=False)  # continuous action
+            # else:
+            #     a = agent.select_action(s, deterministic=False)
+            # s_next, r, dw, tr, info = env.step(a)  # dw: dead&win; tr: truncated
+            # done = dw | tr
+
+            # agent.replay_buffer.add_batch(s, a, r, s_next, dw)
+            # s = s_next
+
+            # """update if its time"""
+            # # train 50 times every 50 steps rather than 1 training per step. Better!
+            # if total_steps >= opt.random_steps and total_steps % opt.update_every == 0:
+            #     for j in range(opt.update_every):
+            #         agent.train()
+
+            # """record & log"""
+            # total_steps += 1
+
+            # """save model"""
+            # if total_steps % opt.save_interval == 0:
+            #     agent.save(int(total_steps / 1000))
             if total_steps < opt.random_steps:
-                a = random_action_test(discrete=False)  # continuous action
+                a = random_action_test(discrete=False)
             else:
-                a = agent.select_action(s, deterministic=False)
+                a = agent.select_action(s, deterministic=False)  # a∈[-1,1]
+
             s_next, r, dw, tr, info = env.step(a)  # dw: dead&win; tr: truncated
+            r = Reward_adapter(r, opt.EnvIdex)
             done = dw | tr
 
             agent.replay_buffer.add_batch(s, a, r, s_next, dw)
             s = s_next
+            total_steps += 1
 
-            """update if its time"""
+            """train if it's time"""
             # train 50 times every 50 steps rather than 1 training per step. Better!
             if total_steps >= opt.random_steps and total_steps % opt.update_every == 0:
                 for j in range(opt.update_every):
                     agent.train()
 
             """record & log"""
-            total_steps += 1
+            # if total_steps % opt.eval_interval == 0:
+            #     ep_r = evaluate_policy(eval_env, opt.max_action, agent, turns=3)
+            #     if opt.write:
+            #         writer.add_scalar("ep_r", ep_r, global_step=total_steps)
+            #     print(
+            #         f"EnvName:{BrifEnvName[opt.EnvIdex]}, Steps: {int(total_steps / 1000)}k, Episode Reward:{ep_r}"
+            #     )
 
             """save model"""
             if total_steps % opt.save_interval == 0:
                 agent.save(int(total_steps / 1000))
+
     env.close()
     eval_env.close()
     print("Training Finished.")

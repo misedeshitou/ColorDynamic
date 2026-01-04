@@ -57,31 +57,6 @@ class ReplayBuffer(object):
         )
         self.dw = torch.zeros((max_size, 1), dtype=torch.bool, device=self.dvc)
 
-    # def add_batch(self, s, a, r, s_next, dw):
-    #     """
-    #     批量添加数据
-    #     s: (batch_size, state_dim)
-    #     a, r, dw: (batch_size, ) 或 (batch_size, 1)
-    #     """
-    #     n = s.shape[0]  # 获取这次进来的数据量
-
-    #     # 确保数据格式是 Tensor 且在正确的设备上
-    #     if not torch.is_tensor(s):
-    #         s = torch.from_numpy(s).to(self.dvc)
-    #     if not torch.is_tensor(s_next):
-    #         s_next = torch.from_numpy(s_next).to(self.dvc)
-
-    #     # 处理索引越界（环形缓冲逻辑）
-    #     idx = torch.arange(self.ptr, self.ptr + n) % self.max_size
-
-    #     self.s[idx] = s.float()
-    #     self.a[idx] = torch.as_tensor(a, device=self.dvc).view(-1, 1).long()
-    #     self.r[idx] = torch.as_tensor(r, device=self.dvc).view(-1, 1).float()
-    #     self.s_next[idx] = s_next.float()
-    #     self.dw[idx] = torch.as_tensor(dw, device=self.dvc).view(-1, 1).bool()
-
-    #     self.ptr = (self.ptr + n) % self.max_size
-    #     self.size = min(self.size + n, self.max_size)
     def add_batch(self, s, a, r, s_next, dw):
         n = s.shape[0] 
 
