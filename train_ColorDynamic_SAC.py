@@ -19,7 +19,7 @@ parser.add_argument('--ModelIdex', type=int, default=2000, help='which model to 
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--Max_train_steps', type=int, default=1e8, help='Max training steps')
-parser.add_argument('--save_interval', type=int, default=1e5, help='Model saving interval, in steps.')
+parser.add_argument('--save_interval', type=int, default=1, help='Model saving interval, in steps.')
 parser.add_argument('--eval_interval', type=int, default=2e3, help='Model evaluating interval, in steps.')
 parser.add_argument('--random_steps', type=int, default=1e4, help='steps for random policy to explore')
 parser.add_argument('--update_every', type=int, default=50, help='training frequency')
@@ -33,7 +33,7 @@ parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use a
 
 '''Hyperparameter Setting for Sparrow'''
 parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
-parser.add_argument('--action_type', type=str, default='Discrete', help='Action type: Discrete / Continuous')
+parser.add_argument('--action_type', type=str, default='Continuous', help='Action type: Discrete / Continuous')
 parser.add_argument('--window_size', type=int, default=800, help='size of the training map')
 parser.add_argument('--D', type=int, default=400, help='maximal local planning distance')
 parser.add_argument('--N', type=int, default=32, help='number of vectorized environments')
@@ -67,8 +67,13 @@ opt.buffersize = min(int(1E6), opt.Max_train_steps)
 # opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
 
 opt.dvc = torch.device(opt.dvc)
-opt.state_dim = 8+int(opt.ld_num/opt.ld_GN)
-opt.action_dim = 7
+# discrete action
+# opt.state_dim = 8+int(opt.ld_num/opt.ld_GN)
+# opt.action_dim = 7
+#continuous action
+opt.state_dim = 8 + int(opt.ld_num/opt.ld_GN)
+# print("opt.state_dim:", opt.state_dim)
+opt.action_dim = 2
 # fmt: on
 # print(opt)
 # Create Env
@@ -102,7 +107,7 @@ def main():
     # Seed Everything
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
-    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
     print("Random Seed: {}".format(opt.seed))
 
@@ -120,7 +125,7 @@ def main():
         while not done.all():
             # e-greedy exploration
             if total_steps < opt.random_steps:
-                a = random_action_test()
+                a = random_action_test(discrete=False)  # continuous action
             else:
                 a = agent.select_action(s, deterministic=False)
             s_next, r, dw, tr, info = env.step(a)  # dw: dead&win; tr: truncated

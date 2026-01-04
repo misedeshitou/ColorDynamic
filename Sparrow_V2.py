@@ -952,13 +952,17 @@ class Sparrow:
                 (self.a_state[current_a], self.a_state[real_a], observation), dim=1
             )  # (N,2)+(N,2)->(N,abs_state_dim-1) => (N,state_dim)
         else:
-            # 无论 current_a 是 [1, 2] 还是 [1]，都统一转成 2D 形状 [1, 维度]
-            # view(1, -1) 的意思是：第一维固定为 1，第二维根据元素个数自动推算
-            c_a = current_a.view(1, -1)
-            r_a = real_a.view(1, -1)
-            obs = observation.view(1, -1)  # 确保 observation 也是 2D
+            # 获取当前的批大小 (N)
+            batch_size = observation.shape[0]
 
-            # 现在三个张量都是 2D 了，dim=1 的拼接就不会报错
+            # 保持 Batch 维度不变，只展开特征维度
+            # 这样如果输入是 (N, 2)，view 之后还是 (N, 2)
+            # 如果输入是 (N, H, W)，view 之后就是 (N, H*W)
+            c_a = current_a.reshape(batch_size, -1)
+            r_a = real_a.reshape(batch_size, -1)
+            obs = observation.reshape(batch_size, -1) 
+
+            # 在维度 1 (特征轴) 上拼接
             return torch.cat((c_a, r_a, obs), dim=1)
 
     def _get_obs(self) -> torch.tensor:

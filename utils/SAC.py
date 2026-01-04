@@ -15,7 +15,7 @@ class SAC_agent:
         self.__dict__.update(kwargs)
         self.tau = 0.005
         self.H_mean = 0
-        self.replay_buffer = ReplayBuffer(self.state_dim, self.dvc, max_size=int(1e6))
+        self.replay_buffer = ReplayBuffer(self.state_dim, self.action_dim, self.action_type, self.dvc, max_size=int(1e6))
 
         self.actor = Policy_Net(self.state_dim, self.action_dim, self.hid_shape).to(
             self.dvc
