@@ -109,17 +109,17 @@ def Action_adapter_reverse(act, max_action):
     return act / max_action
 
 
-def evaluate_policy(env, max_action, agent, turns=3):
+def evaluate_policy(env, agent, turns=3):
     total_scores = 0
     for j in range(turns):
         s, info = env.reset()
         done = False
         while not done:
             # Take deterministic actions at test time
-            a = agent.select_action(s, deterministic=True)
-            act = Action_adapter(a, max_action)
-            s_next, r, dw, tr, info = env.step(act)
-            done = dw or tr
+            a = agent.select_action(s, deterministic=False)
+            # act = Action_adapter(a, max_action)
+            s_next, r, dw, tr, info = env.step(a)
+            done = dw | tr
 
             total_scores += r
             s = s_next
