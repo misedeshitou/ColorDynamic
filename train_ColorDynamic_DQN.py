@@ -1,7 +1,9 @@
 import argparse
 import os
+from datetime import datetime
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from Sparrow_V2 import Sparrow, str2bool
 from utils.DQN import DQN_agent
@@ -99,6 +101,39 @@ def random_action_test(discrete=True):
     return random_action
 
 
+def evaluate(envs, agent, deterministic=True, turns=20):
+    step_collector, total_steps = torch.zeros(envs.N, device=envs.dvc), 0
+    r_collector, total_r = torch.zeros(envs.N, device=envs.dvc), 0
+    arrived, finished = 0, 0
+
+    s, info = envs.reset()
+    while finished < turns:
+        a = agent.select_action(s, deterministic)
+        s, r, dw, tr, info = envs.step(a)
+
+        dones = dw + tr
+        wins = r == envs.AWARD
+        dead_and_tr = dones ^ wins
+
+        step_collector += 1
+        total_steps += step_collector[wins].sum()
+        total_steps += (envs.max_ep_steps * dead_and_tr).sum()
+        step_collector[dones] = 0
+
+        r_collector += r
+        total_r += r_collector[dones].sum()
+        r_collector[dones] = 0
+
+        finished += int(dones.sum().item())
+        arrived += int(wins.sum().item())
+
+    return (
+        int(total_steps.item() / finished),
+        round(total_r.item() / finished, 2),
+        round(arrived / finished, 2),
+    )
+
+
 def train():
     # Seed Everything
     torch.manual_seed(opt.seed)
@@ -110,8 +145,13 @@ def train():
     if not os.path.exists("model"):
         os.mkdir("model")
 
+    writer = None
+    if opt.write:
+        run_name = f"DQN-C{opt.O}-N{opt.N}-{datetime.now().strftime('%Y-%m-%d %H_%M')}"
+        writer = SummaryWriter(log_dir=os.path.join("runs", run_name))
+        writer.add_text("config", str(vars(opt)))
+
     total_steps = 0
-    score = 0
 
     s, info = env.reset()
 
@@ -132,8 +172,34 @@ def train():
         """Update"""
         if total_steps >= opt.random_steps:
             if (total_steps // s.shape[0]) % opt.update_every == 0:
+                train_info = None
                 for j in range(opt.update_every):
-                    agent.train()
+                    train_info = agent.train()
+
+                if writer is not None and train_info is not None:
+                    writer.add_scalar("Loss/Q", train_info["q_loss"], total_steps)
+                    writer.add_scalar(
+                        "Exploration/Noise", train_info["exp_noise"], total_steps
+                    )
+
+        if writer is not None and total_steps % 100 == 0:
+            writer.add_scalar("Train/RewardMean", r.mean().item(), total_steps)
+            writer.add_scalar(
+                "Train/DoneRate", (dw | tr).float().mean().item(), total_steps
+            )
+            writer.add_scalar("Buffer/Size", agent.replay_buffer.size, total_steps)
+
+        if total_steps > 0 and total_steps % opt.eval_interval < s.shape[0]:
+            test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
+                eval_env, agent, deterministic=True, turns=20
+            )
+            print(
+                f"Eval@{total_steps}: ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps:{test_ep_steps}"
+            )
+            if writer is not None:
+                writer.add_scalar("Eval/ArrivalRate", test_arrival_rate, total_steps)
+                writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
+                writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
 
         # """Noise decay & Record & Log"""
         # if total_steps % 1000 < s.shape[0]: # 适配批量步数的余数判断
@@ -148,9 +214,11 @@ def train():
         if total_steps % opt.save_interval < s.shape[0]:
             agent.save(int(total_steps / 1000))
 
+    if writer is not None:
+        writer.close()
 
-env.close()
-eval_env.close()
+    env.close()
+    eval_env.close()
 
 
 def main():

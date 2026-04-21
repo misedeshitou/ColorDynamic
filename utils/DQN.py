@@ -147,6 +147,11 @@ class DQN_agent(object):
             print(f"  - 小时: {est_200k_sec / 3600:.2f} h")
             print("=" * 40 + "\n")
 
+        return {
+            "q_loss": q_loss.item(),
+            "exp_noise": float(self.exp_noise),
+        }
+
     def save(self, steps):
         torch.save(self.q_net.state_dict(), "./model/{}_{}.pth".format("DQN", steps))
 
