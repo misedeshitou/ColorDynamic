@@ -4,7 +4,6 @@ import torch
 
 from Sparrow_V2 import Sparrow, str2bool
 from utils.SAC import SAC_agent
-from utils.utils_SAC import evaluate_policy
 
 # fmt: off
 parser = argparse.ArgumentParser()
@@ -76,8 +75,51 @@ def main():
 
     # Play
     while True:
-        scores = evaluate_policy(env, agent, turns=100)
-        print(f"ArrivalRate:{scores[2]}, Reward:{scores[1]}, Steps: {scores[0]}\n")
+        test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
+            env, agent, deterministic=True, turns=100
+        )
+        print(
+            f"ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps: {test_ep_steps}\n"
+        )
+
+
+def evaluate(envs, agent, deterministic, turns):
+    step_collector, total_steps = torch.zeros(opt.N, device=opt.dvc), 0
+    r_collector, total_r = torch.zeros(opt.N, device=opt.dvc), 0
+    arrived, finished = 0, 0
+
+    s, info = envs.reset()
+    while finished < turns:
+        a = agent.select_action(s, deterministic)
+        s, r, dw, tr, info = envs.step(a)
+
+        dones = dw + tr
+        wins = r == envs.AWARD
+        dead_and_tr = dones ^ wins  # dones-wins = deads and truncateds
+
+        """统计回合步数："""
+        step_collector += 1
+        total_steps += step_collector[wins].sum()  # 到达,总步数加上真实步数
+        total_steps += (
+            envs.max_ep_steps * dead_and_tr
+        ).sum()  # 未到达,总步数加上回合最大步数
+        step_collector[dones] = 0
+
+        """统计总奖励："""
+        r_collector += r
+        total_r += r_collector[dones].sum()
+        r_collector[dones] = 0
+
+        """统计到达率："""
+        finished += dones.sum()
+        arrived += wins.sum()
+
+    return (
+        int(total_steps.item() / finished.item()),
+        round(total_r.item() / finished.item(), 2),
+        round(arrived.item() / finished.item(), 2),
+    )
+
 
 if __name__ == "__main__":
     main()

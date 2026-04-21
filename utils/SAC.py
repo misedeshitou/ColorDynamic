@@ -105,7 +105,8 @@ class SAC_agent:
         )  # [b,]
 
         self.actor_optimizer.zero_grad()
-        a_loss.mean().backward()
+        a_loss_mean = a_loss.mean()
+        a_loss_mean.backward()
         self.actor_optimizer.step()
 
         # ------------------------------------------ Train Alpha ----------------------------------------#
@@ -145,6 +146,15 @@ class SAC_agent:
             print(f"  - 分钟: {est_200k_sec / 60:.2f} min")
             print(f"  - 小时: {est_200k_sec / 3600:.2f} h")
             print("=" * 40 + "\n")
+
+        return {
+            "q_loss": q_loss.item(),
+            "actor_loss": a_loss_mean.item(),
+            "alpha": float(self.alpha),
+            "entropy": float(self.H_mean.item())
+            if torch.is_tensor(self.H_mean)
+            else float(self.H_mean),
+        }
 
     def save(self, timestep):
         torch.save(self.actor.state_dict(), f"./model/sacd_actor_{timestep}.pth")
