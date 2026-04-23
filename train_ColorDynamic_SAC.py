@@ -2,6 +2,7 @@ import argparse
 
 # import gymnasium as gym
 import os
+import time
 from datetime import datetime
 
 import torch
@@ -20,7 +21,7 @@ parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pret
 parser.add_argument('--ModelIdex', type=int, default=2000, help='which model to load')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
-parser.add_argument('--Max_train_steps', type=int, default=1e8, help='Max training steps')
+parser.add_argument('--max_train_steps', '--Max_train_steps', dest='max_train_steps', type=int, default=1e8, help='Max training steps')
 parser.add_argument('--save_interval', type=int, default=1e5, help='Model saving interval, in steps.')
 parser.add_argument('--eval_interval', type=int, default=2e3, help='Model evaluating interval, in steps.')
 parser.add_argument('--random_steps', type=int, default=1e4, help='steps for random policy to explore')
@@ -65,7 +66,7 @@ parser.add_argument('--DR_freq', type=int, default=int(3.2e3), help='frequency o
 parser.add_argument('--compile', type=str2bool, default=True, help='whether to use torch.compile to boost simulation speed')
 opt = parser.parse_args()
 opt.render_mode = None # dont render when training
-opt.buffersize = min(int(1E6), opt.Max_train_steps)
+opt.buffersize = min(int(1E6), opt.max_train_steps)
 # opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
 
 opt.dvc = torch.device(opt.dvc)
@@ -152,7 +153,10 @@ def main():
         writer.add_text("config", str(vars(opt)))
 
     total_steps = 0
-    while total_steps < opt.Max_train_steps:
+    bstep = 0
+    perf_start_after_warmup = None
+    perf_last_print_steps = -1
+    while total_steps < opt.max_train_steps:
         s, info = env.reset()
         # done = False
         done = torch.zeros(env.N, dtype=torch.bool, device=env.dvc)
@@ -173,11 +177,24 @@ def main():
             """update if its time"""
             # train 50 times every 50 steps rather than 1 training per step. Better!
             if total_steps >= opt.random_steps and total_steps % opt.update_every == 0:
+                if perf_start_after_warmup is None:
+                    perf_start_after_warmup = time.time()
+
                 train_info = None
                 for j in range(opt.update_every):
                     train_info = agent.train()
+                    bstep += 1
 
                 if writer is not None and train_info is not None:
+                    elapsed_after_warmup = max(
+                        time.time() - perf_start_after_warmup, 1e-6
+                    )
+                    data_steps = max(total_steps - opt.random_steps, 1)
+                    sps = data_steps / elapsed_after_warmup
+                    bps = bstep / elapsed_after_warmup
+                    utd = (bstep * opt.batch_size) / data_steps
+                    replay_usage = agent.replay_buffer.size / max(opt.buffersize, 1)
+
                     writer.add_scalar("Loss/Q", train_info["q_loss"], total_steps)
                     writer.add_scalar(
                         "Loss/Actor", train_info["actor_loss"], total_steps
@@ -186,6 +203,29 @@ def main():
                     writer.add_scalar(
                         "Policy/Entropy", train_info["entropy"], total_steps
                     )
+                    writer.add_scalar("Perf/SPS", sps, total_steps)
+                    writer.add_scalar("Perf/BPS", bps, total_steps)
+                    writer.add_scalar("Perf/UTD", utd, total_steps)
+                    writer.add_scalar("Perf/ReplayUsage", replay_usage, total_steps)
+                    writer.add_scalar("Perf/PolicyLagSteps", 0, total_steps)
+
+                if (
+                    total_steps - perf_last_print_steps >= 5000
+                    or perf_last_print_steps < 0
+                ):
+                    elapsed_after_warmup = max(
+                        time.time() - perf_start_after_warmup, 1e-6
+                    )
+                    data_steps = max(total_steps - opt.random_steps, 1)
+                    sps = data_steps / elapsed_after_warmup
+                    bps = bstep / elapsed_after_warmup
+                    utd = (bstep * opt.batch_size) / data_steps
+                    replay_usage = agent.replay_buffer.size / max(opt.buffersize, 1)
+                    print(
+                        f"(SAC Single) steps={total_steps / 1e3:.1f}k | SPS={sps:.1f} | "
+                        f"BPS={bps:.1f} | UTD={utd:.2f} | Replay={replay_usage * 100:.1f}%"
+                    )
+                    perf_last_print_steps = total_steps
 
             """record & log"""
             if writer is not None and total_steps % 100 == 0:

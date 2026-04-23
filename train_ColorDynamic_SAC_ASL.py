@@ -29,7 +29,12 @@ if __name__ == "__main__":
     # SAC training configuration
     parser.add_argument("--seed", type=int, default=0, help="random seed")
     parser.add_argument(
-        "--max_train_steps", type=int, default=int(1e8), help="Max training total steps"
+        "--max_train_steps",
+        "--Max_train_steps",
+        dest="max_train_steps",
+        type=int,
+        default=int(1e8),
+        help="Max training total steps",
     )
     parser.add_argument(
         "--random_steps",

@@ -31,6 +31,7 @@ class SACLearner:
         self.upload_freq = opt.upload_freq
         self.save_interval = opt.save_interval
         self.adaptive_alpha = opt.adaptive_alpha
+        self.buffer_capacity = int(opt.buffersize)
 
         self.actor = Policy_Net(opt.state_dim, opt.action_dim, opt.hid_shape).to(
             self.L_dvc
@@ -58,6 +59,9 @@ class SACLearner:
             self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=self.lr)
 
         self.Bstep = 0
+        self.start_time = time.time()
+        self.start_time_after_warmup = None
+        self.last_upload_total_steps = 0
 
         if not os.path.exists("model"):
             os.mkdir("model")
@@ -77,6 +81,7 @@ class SACLearner:
 
     def run(self):
         last_trained_total_steps = -1
+        last_perf_log_steps = -1
 
         while True:
             total_steps = self.shared_data.get_total_steps()
@@ -88,6 +93,9 @@ class SACLearner:
             if total_steps < self.random_steps or buffer_size < self.batch_size:
                 time.sleep(0.1)
                 continue
+
+            if self.start_time_after_warmup is None:
+                self.start_time_after_warmup = time.time()
 
             # mimic original single-process rhythm: every update_every env-steps, do update_every gradient steps
             if (
@@ -101,9 +109,19 @@ class SACLearner:
 
                     if self.Bstep % self.upload_freq == 0:
                         self.upload_actor()
+                        self.last_upload_total_steps = total_steps
                         self.shared_data.set_should_download(True)
 
                 if self.writer is not None and train_info is not None:
+                    elapsed_after_warmup = max(
+                        time.time() - self.start_time_after_warmup, 1e-6
+                    )
+                    data_steps = max(total_steps - self.random_steps, 1)
+                    sps = data_steps / elapsed_after_warmup
+                    bps = self.Bstep / elapsed_after_warmup
+                    utd = (self.Bstep * self.batch_size) / data_steps
+                    replay_usage = buffer_size / max(self.buffer_capacity, 1)
+
                     self.writer.add_scalar("Loss/Q", train_info["q_loss"], total_steps)
                     self.writer.add_scalar(
                         "Loss/Actor", train_info["actor_loss"], total_steps
@@ -115,6 +133,32 @@ class SACLearner:
                         "Policy/Entropy", train_info["entropy"], total_steps
                     )
                     self.writer.add_scalar("Buffer/Size", buffer_size, total_steps)
+                    self.writer.add_scalar("Perf/SPS", sps, total_steps)
+                    self.writer.add_scalar("Perf/BPS", bps, total_steps)
+                    self.writer.add_scalar("Perf/UTD", utd, total_steps)
+                    self.writer.add_scalar(
+                        "Perf/ReplayUsage", replay_usage, total_steps
+                    )
+                    self.writer.add_scalar(
+                        "Perf/PolicyLagSteps",
+                        total_steps - self.last_upload_total_steps,
+                        total_steps,
+                    )
+
+                if total_steps - last_perf_log_steps >= 5000 or last_perf_log_steps < 0:
+                    elapsed_after_warmup = max(
+                        time.time() - self.start_time_after_warmup, 1e-6
+                    )
+                    data_steps = max(total_steps - self.random_steps, 1)
+                    sps = data_steps / elapsed_after_warmup
+                    bps = self.Bstep / elapsed_after_warmup
+                    utd = (self.Bstep * self.batch_size) / data_steps
+                    replay_usage = buffer_size / max(self.buffer_capacity, 1)
+                    print(
+                        f"(SAC Learner) steps={total_steps / 1e3:.1f}k | SPS={sps:.1f} | "
+                        f"BPS={bps:.1f} | UTD={utd:.2f} | Replay={replay_usage * 100:.1f}%"
+                    )
+                    last_perf_log_steps = total_steps
 
                 if self.save_interval > 0 and total_steps % self.save_interval == 0:
                     self.save(total_steps)
