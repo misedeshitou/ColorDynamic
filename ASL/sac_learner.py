@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
+from Sparrow_V2 import Sparrow
 from utils.utils_SAC import Double_Q_Net, Policy_Net
 
 
@@ -30,6 +31,8 @@ class SACLearner:
         self.update_every = opt.update_every
         self.upload_freq = opt.upload_freq
         self.save_interval = opt.save_interval
+        self.eval_interval = opt.eval_interval
+        self.eval_turns = opt.eval_turns
         self.adaptive_alpha = opt.adaptive_alpha
         self.buffer_capacity = int(opt.buffersize)
 
@@ -74,6 +77,8 @@ class SACLearner:
             self.writer = SummaryWriter(log_dir=os.path.join("runs", run_name))
             self.writer.add_text("config", str(vars(opt)))
 
+        self.eval_env = Sparrow(**vars(opt))
+
         # first upload so actor can use non-random policy later
         self.upload_actor()
 
@@ -82,6 +87,7 @@ class SACLearner:
     def run(self):
         last_trained_total_steps = -1
         last_perf_log_steps = -1
+        last_eval_total_steps = 0
 
         while True:
             total_steps = self.shared_data.get_total_steps()
@@ -163,6 +169,30 @@ class SACLearner:
                 if self.save_interval > 0 and total_steps % self.save_interval == 0:
                     self.save(total_steps)
 
+                if (
+                    self.eval_interval > 0
+                    and total_steps - last_eval_total_steps >= self.eval_interval
+                ):
+                    test_ep_steps, test_ep_r, test_arrival_rate = self.evaluate(
+                        deterministic=True, turns=self.eval_turns
+                    )
+                    print(
+                        f"Eval@{total_steps}: ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps:{test_ep_steps}"
+                    )
+                    if self.writer is not None:
+                        self.writer.add_scalar(
+                            "Eval/ArrivalRate", test_arrival_rate, total_steps
+                        )
+                        self.writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
+                        self.writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
+                        # compatibility tags for quick filtering
+                        self.writer.add_scalar(
+                            "arrival_rate", test_arrival_rate, total_steps
+                        )
+                        self.writer.add_scalar("ep_r", test_ep_r, total_steps)
+                        self.writer.add_scalar("ep_steps", test_ep_steps, total_steps)
+                    last_eval_total_steps = total_steps
+
                 last_trained_total_steps = total_steps
             else:
                 time.sleep(0.01)
@@ -170,7 +200,48 @@ class SACLearner:
         self.save(total_steps)
         if self.writer is not None:
             self.writer.close()
+        self.eval_env.close()
         print("---------------- SAC Learner Finished ----------------")
+
+    def evaluate(self, deterministic=True, turns=20):
+        envs = self.eval_env
+        step_collector, total_steps = torch.zeros(envs.N, device=envs.dvc), 0
+        r_collector, total_r = torch.zeros(envs.N, device=envs.dvc), 0
+        arrived, finished = 0, 0
+
+        s, info = envs.reset()
+        while finished < turns:
+            a = self.select_action(s, deterministic).to(envs.dvc)
+            s, r, dw, tr, info = envs.step(a)
+
+            dones = dw | tr
+            wins = r == envs.AWARD
+            dead_and_tr = dones ^ wins
+
+            step_collector += 1
+            total_steps += step_collector[wins].sum()
+            total_steps += (envs.max_ep_steps * dead_and_tr).sum()
+            step_collector[dones] = 0
+
+            r_collector += r
+            total_r += r_collector[dones].sum()
+            r_collector[dones] = 0
+
+            finished += int(dones.sum().item())
+            arrived += int(wins.sum().item())
+
+        return (
+            int(total_steps.item() / finished),
+            round(total_r.item() / finished, 2),
+            round(arrived / finished, 2),
+        )
+
+    def select_action(self, s, deterministic):
+        with torch.no_grad():
+            probs = self.actor(s)
+            if deterministic:
+                return probs.argmax(dim=-1)
+            return torch.multinomial(probs, num_samples=1).squeeze(1)
 
     def train_step(self):
         batch = self.shared_data.sample(self.batch_size)

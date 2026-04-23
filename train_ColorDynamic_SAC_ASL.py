@@ -58,6 +58,18 @@ if __name__ == "__main__":
         help="Model saving interval, in total steps",
     )
     parser.add_argument(
+        "--eval_interval",
+        type=int,
+        default=int(2e3),
+        help="Model evaluating interval, in total steps",
+    )
+    parser.add_argument(
+        "--eval_turns",
+        type=int,
+        default=20,
+        help="number of finished episodes used in each evaluation",
+    )
+    parser.add_argument(
         "--download_check_interval",
         type=int,
         default=320,

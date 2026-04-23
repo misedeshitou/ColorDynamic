@@ -248,6 +248,10 @@ def main():
                     )
                     writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
                     writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
+                    # compatibility tags for quick filtering
+                    writer.add_scalar("arrival_rate", test_arrival_rate, total_steps)
+                    writer.add_scalar("ep_r", test_ep_r, total_steps)
+                    writer.add_scalar("ep_steps", test_ep_steps, total_steps)
 
             total_steps += 1
 
