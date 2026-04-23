@@ -14,7 +14,7 @@ from utils.SAC import SAC_agent
 '''Hyperparameter Setting for DRL'''
 parser = argparse.ArgumentParser()
 # parser.add_argument('--EnvIdex', type=int, default=0, help='CP-v1, LLd-v2')
-parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
+parser.add_argument('--write', type=str2bool, default=True, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
 parser.add_argument('--ModelIdex', type=int, default=2000, help='which model to load')
