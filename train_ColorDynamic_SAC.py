@@ -65,6 +65,11 @@ parser.add_argument('--DR', type=str2bool, default=True, help='whether to use Do
 parser.add_argument('--DR_freq', type=int, default=int(3.2e3), help='frequency of Domain Randomization, in total steps')
 parser.add_argument('--compile', type=str2bool, default=True, help='whether to use torch.compile to boost simulation speed')
 opt = parser.parse_args()
+opt.run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+opt.run_dir = os.path.join('runs', 'SAC', opt.run_timestamp)
+opt.model_dir = os.path.join('model', 'SAC', opt.run_timestamp)
+os.makedirs(opt.run_dir, exist_ok=True)
+os.makedirs(opt.model_dir, exist_ok=True)
 opt.render_mode = None # dont render when training
 opt.buffersize = min(int(1E6), opt.max_train_steps)
 # opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
@@ -143,14 +148,13 @@ def main():
     print("Random Seed: {}".format(opt.seed))
 
     # Build model
-    if not os.path.exists("model"):
-        os.mkdir("model")
-
     writer = None
     if opt.write:
-        run_name = f"SAC-C{opt.O}-N{opt.N}-{datetime.now().strftime('%Y-%m-%d %H_%M')}"
-        writer = SummaryWriter(log_dir=os.path.join("runs", run_name))
+        writer = SummaryWriter(log_dir=opt.run_dir)
         writer.add_text("config", str(vars(opt)))
+
+    print(f"[SAC] logs -> {opt.run_dir}")
+    print(f"[SAC] models -> {opt.model_dir}")
 
     total_steps = 0
     bstep = 0

@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import torch
 
@@ -11,7 +12,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
-parser.add_argument('--ModelIdex', type=int, default=7000, help='which model to load')
+parser.add_argument('--ModelIdex', type=int, default=17400, help='which model to load')
+parser.add_argument('--model_dir', type=str, default='model/SAC_ASL/20260423_230701', help='directory of actor checkpoints')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--Max_train_steps', type=int, default=4e5, help='Max training steps')
@@ -70,8 +72,12 @@ def main():
     opt.action_dim = env.action_dim
 
     # Init agent
+    actor_ckpt = os.path.join(opt.model_dir, f"sacd_actor_{opt.ModelIdex}.pth")
+    if not os.path.isfile(actor_ckpt):
+        raise FileNotFoundError(f"Checkpoint not found: {actor_ckpt}")
+    print(f"Loading actor checkpoint from: {actor_ckpt}")
     agent = SAC_agent(**vars(opt))
-    agent.load(opt.ModelIdex)
+    agent.actor.load_state_dict(torch.load(actor_ckpt, map_location=opt.dvc))
 
     # Play
     while True:

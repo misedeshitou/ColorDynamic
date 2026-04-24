@@ -1,4 +1,6 @@
 import argparse
+import os
+from datetime import datetime
 from multiprocessing.managers import BaseManager
 
 import torch
@@ -238,6 +240,12 @@ if __name__ == "__main__":
 
     opt = parser.parse_args()
 
+    opt.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    opt.run_dir = os.path.join("runs", "SAC_ASL", opt.run_timestamp)
+    opt.model_dir = os.path.join("model", "SAC_ASL", opt.run_timestamp)
+    os.makedirs(opt.run_dir, exist_ok=True)
+    os.makedirs(opt.model_dir, exist_ok=True)
+
     opt.render_mode = None
     opt.buffersize = min(int(1e6), opt.max_train_steps)
 
@@ -247,6 +255,9 @@ if __name__ == "__main__":
 
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
+
+    print(f"[SAC_ASL] logs -> {opt.run_dir}")
+    print(f"[SAC_ASL] models -> {opt.model_dir}")
 
     BaseManager.register("shared_data_sac", callable=shared_data_sac)
     ShareManager = BaseManager()

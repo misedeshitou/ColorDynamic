@@ -1,4 +1,5 @@
 import copy
+import os
 import time
 
 import numpy as np
@@ -16,6 +17,8 @@ class SAC_agent:
         self.tau = 0.005
         self.H_mean = 0
         self.replay_buffer = ReplayBuffer(self.state_dim, self.dvc, max_size=int(1e6))
+        self.model_dir = getattr(self, "model_dir", "./model")
+        os.makedirs(self.model_dir, exist_ok=True)
 
         self.actor = Policy_Net(self.state_dim, self.action_dim, self.hid_shape).to(
             self.dvc
@@ -157,13 +160,25 @@ class SAC_agent:
         }
 
     def save(self, timestep):
-        torch.save(self.actor.state_dict(), f"./model/sacd_actor_{timestep}.pth")
-        torch.save(self.q_critic.state_dict(), f"./model/sacd_critic_{timestep}.pth")
+        torch.save(
+            self.actor.state_dict(),
+            os.path.join(self.model_dir, f"sacd_actor_{timestep}.pth"),
+        )
+        torch.save(
+            self.q_critic.state_dict(),
+            os.path.join(self.model_dir, f"sacd_critic_{timestep}.pth"),
+        )
 
     def load(self, timestep):
         self.actor.load_state_dict(
-            torch.load(f"./model/sacd_actor_{timestep}.pth", map_location=self.dvc)
+            torch.load(
+                os.path.join(self.model_dir, f"sacd_actor_{timestep}.pth"),
+                map_location=self.dvc,
+            )
         )
         self.q_critic.load_state_dict(
-            torch.load(f"./model/sacd_critic_{timestep}.pth", map_location=self.dvc)
+            torch.load(
+                os.path.join(self.model_dir, f"sacd_critic_{timestep}.pth"),
+                map_location=self.dvc,
+            )
         )

@@ -1,7 +1,6 @@
 import os
 import time
 from copy import deepcopy
-from datetime import datetime
 
 import numpy as np
 import torch
@@ -35,6 +34,10 @@ class SACLearner:
         self.eval_turns = opt.eval_turns
         self.adaptive_alpha = opt.adaptive_alpha
         self.buffer_capacity = int(opt.buffersize)
+        self.run_dir = getattr(opt, "run_dir", os.path.join("runs", "SAC_ASL"))
+        self.model_dir = getattr(opt, "model_dir", os.path.join("model", "SAC_ASL"))
+        os.makedirs(self.run_dir, exist_ok=True)
+        os.makedirs(self.model_dir, exist_ok=True)
 
         self.actor = Policy_Net(opt.state_dim, opt.action_dim, opt.hid_shape).to(
             self.L_dvc
@@ -66,15 +69,9 @@ class SACLearner:
         self.start_time_after_warmup = None
         self.last_upload_total_steps = 0
 
-        if not os.path.exists("model"):
-            os.mkdir("model")
-
         self.writer = None
         if opt.write:
-            run_name = (
-                f"SAC-ASL-C{opt.O}-N{opt.N}-{datetime.now().strftime('%Y-%m-%d %H_%M')}"
-            )
-            self.writer = SummaryWriter(log_dir=os.path.join("runs", run_name))
+            self.writer = SummaryWriter(log_dir=self.run_dir)
             self.writer.add_text("config", str(vars(opt)))
 
         self.eval_env = Sparrow(**vars(opt))
@@ -317,5 +314,8 @@ class SACLearner:
 
     def save(self, total_steps):
         model_idx = int(total_steps / 1000)
-        torch.save(self.actor.state_dict(), f"./model/sacd_actor_{model_idx}.pth")
+        torch.save(
+            self.actor.state_dict(),
+            os.path.join(self.model_dir, f"sacd_actor_{model_idx}.pth"),
+        )
         torch.save(self.q_critic.state_dict(), f"./model/sacd_critic_{model_idx}.pth")
