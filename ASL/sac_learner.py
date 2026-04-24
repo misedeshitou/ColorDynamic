@@ -73,6 +73,15 @@ class SACLearner:
         if opt.write:
             self.writer = SummaryWriter(log_dir=self.run_dir)
             self.writer.add_text("config", str(vars(opt)))
+            sample_state = torch.zeros((2, opt.state_dim), device=self.L_dvc)
+            try:
+                self.writer.add_graph(self.actor, sample_state)
+            except Exception as e:
+                print(f"[TensorBoard] add_graph(actor) failed: {e}")
+            try:
+                self.writer.add_graph(self.q_critic, sample_state)
+            except Exception as e:
+                print(f"[TensorBoard] add_graph(q_critic) failed: {e}")
 
         self.eval_env = Sparrow(**vars(opt))
 

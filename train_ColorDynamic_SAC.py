@@ -152,6 +152,15 @@ def main():
     if opt.write:
         writer = SummaryWriter(log_dir=opt.run_dir)
         writer.add_text("config", str(vars(opt)))
+        sample_state = torch.zeros((2, opt.state_dim), device=opt.dvc)
+        try:
+            writer.add_graph(agent.actor, sample_state)
+        except Exception as e:
+            print(f"[TensorBoard] add_graph(actor) failed: {e}")
+        try:
+            writer.add_graph(agent.q_critic, sample_state)
+        except Exception as e:
+            print(f"[TensorBoard] add_graph(q_critic) failed: {e}")
 
     print(f"[SAC] logs -> {opt.run_dir}")
     print(f"[SAC] models -> {opt.model_dir}")
