@@ -54,6 +54,18 @@ if __name__ == "__main__":
         help="learner upload actor frequency, in Bstep",
     )
     parser.add_argument(
+        "--exp_name",
+        type=str,
+        default="ColorDynamic_SAC_ASL",
+        help="Experiment name",
+    )
+    parser.add_argument(
+        "--reset_freq",
+        type=int,
+        default=int(32e3),
+        help="training env reset frequency (curriculum learning), in total steps",
+    )
+    parser.add_argument(
         "--save_interval",
         type=int,
         default=int(1e5),
@@ -248,6 +260,7 @@ if __name__ == "__main__":
 
     opt.render_mode = None
     opt.buffersize = min(int(1e6), opt.max_train_steps)
+    opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
 
     opt.dvc = torch.device(opt.dvc)
     opt.state_dim = 8 + int(opt.ld_num / opt.ld_GN)

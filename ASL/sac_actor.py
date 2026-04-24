@@ -17,7 +17,10 @@ class SACActor:
         self.A_dvc = torch.device(opt.A_dvc)
         self.shared_data = opt.shared_data
 
+        self.O = opt.O
         self.N = opt.N
+        self.reset_freq = opt.reset_freq
+        self.exp_name = opt.exp_name
         self.max_train_steps = opt.max_train_steps
         self.random_steps = opt.random_steps
         self.download_check_interval = opt.download_check_interval
@@ -42,6 +45,27 @@ class SACActor:
         ep_r = 0.0
 
         while self.total_steps < self.max_train_steps:
+            # baby-step curriculum learning (same idea as train_ColorDynamic.py)
+            if (
+                self.total_steps > 0
+                and self.total_steps % (self.reset_freq * self.N) == 0
+            ):
+                self.envs.O = (
+                    int(
+                        self.O
+                        * min(0.15, self.total_steps / self.max_train_steps)
+                        / 0.15
+                    )
+                    + 1
+                )
+                print(
+                    f"(SAC Actor) {self.exp_name}, Total steps: {round(self.total_steps / 1e3, 2)}k; "
+                    f"Obstacle Numbers: {self.envs.O}"
+                )
+                s, info = self.envs.reset()
+                ep_r = 0.0
+                continue
+
             if self.total_steps < self.random_steps:
                 a = torch.randint(0, self.action_dim, (self.N,), device=self.A_dvc)
             else:
