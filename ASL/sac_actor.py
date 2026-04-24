@@ -36,8 +36,10 @@ class SACActor:
         for p in self.actor.parameters():
             p.requires_grad = False
 
-        self.total_steps = 0
+        self.total_steps = self.shared_data.get_total_steps()
         self.t_start = time.time()
+        if self.total_steps > 0:
+            print(f"(SAC Actor) Resume total steps: {self.total_steps}")
         print("SAC Actor Started!")
 
     def run(self):

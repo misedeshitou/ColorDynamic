@@ -69,6 +69,29 @@ class SACLearner:
         self.start_time_after_warmup = None
         self.last_upload_total_steps = 0
 
+        resume_actor_ckpt = getattr(opt, "resume_actor_ckpt", None)
+        resume_actor_kstep = getattr(opt, "resume_actor_kstep", None)
+        if resume_actor_ckpt is not None and os.path.isfile(resume_actor_ckpt):
+            self.actor.load_state_dict(
+                torch.load(resume_actor_ckpt, map_location=self.L_dvc)
+            )
+            print(f"[SAC Learner] loaded actor checkpoint: {resume_actor_ckpt}")
+
+            if resume_actor_kstep is not None:
+                critic_ckpt = os.path.join(
+                    self.model_dir, f"sacd_critic_{resume_actor_kstep}.pth"
+                )
+                if os.path.isfile(critic_ckpt):
+                    self.q_critic.load_state_dict(
+                        torch.load(critic_ckpt, map_location=self.L_dvc)
+                    )
+                    self.q_critic_target.load_state_dict(self.q_critic.state_dict())
+                    print(f"[SAC Learner] loaded critic checkpoint: {critic_ckpt}")
+                else:
+                    print(
+                        f"[SAC Learner] critic checkpoint not found: {critic_ckpt}; continue with fresh critic"
+                    )
+
         self.writer = None
         if opt.write:
             self.writer = SummaryWriter(log_dir=self.run_dir)
@@ -93,7 +116,7 @@ class SACLearner:
     def run(self):
         last_trained_total_steps = -1
         last_perf_log_steps = -1
-        last_eval_total_steps = 0
+        last_eval_total_steps = self.shared_data.get_total_steps()
 
         while True:
             total_steps = self.shared_data.get_total_steps()
@@ -327,4 +350,7 @@ class SACLearner:
             self.actor.state_dict(),
             os.path.join(self.model_dir, f"sacd_actor_{model_idx}.pth"),
         )
-        torch.save(self.q_critic.state_dict(), f"./model/sacd_critic_{model_idx}.pth")
+        torch.save(
+            self.q_critic.state_dict(),
+            os.path.join(self.model_dir, f"sacd_critic_{model_idx}.pth"),
+        )
