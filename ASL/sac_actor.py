@@ -37,7 +37,6 @@ class SACActor:
             p.requires_grad = False
 
         self.total_steps = self.shared_data.get_total_steps()
-        self.last_curriculum_step = -1
         self.t_start = time.time()
         if self.total_steps > 0:
             print(f"(SAC Actor) Resume total steps: {self.total_steps}")
@@ -52,9 +51,7 @@ class SACActor:
             if (
                 self.total_steps > 0
                 and self.total_steps % (self.reset_freq * self.N) == 0
-                and self.total_steps != self.last_curriculum_step
             ):
-                self.last_curriculum_step = self.total_steps
                 self.envs.O = (
                     int(
                         self.O
