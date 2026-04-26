@@ -179,13 +179,19 @@ def main():
 
                 if writer is not None and train_info is not None:
                     writer.add_scalar("Loss/Q", train_info["q_loss"], total_steps)
-                    writer.add_scalar("Loss/Actor", train_info["actor_loss"], total_steps)
+                    writer.add_scalar(
+                        "Loss/Actor", train_info["actor_loss"], total_steps
+                    )
                     writer.add_scalar("Alpha/value", train_info["alpha"], total_steps)
-                    writer.add_scalar("Policy/Entropy", train_info["entropy"], total_steps)
+                    writer.add_scalar(
+                        "Policy/Entropy", train_info["entropy"], total_steps
+                    )
 
             if writer is not None and total_steps % 100 == 0:
                 writer.add_scalar("Train/RewardMean", r.mean().item(), total_steps)
-                writer.add_scalar("Train/DoneRate", done.float().mean().item(), total_steps)
+                writer.add_scalar(
+                    "Train/DoneRate", done.float().mean().item(), total_steps
+                )
                 writer.add_scalar("Buffer/Size", agent.replay_buffer.size, total_steps)
 
             if total_steps > 0 and total_steps % opt.eval_interval == 0:
@@ -196,7 +202,9 @@ def main():
                     f"Eval@{total_steps}: ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps:{test_ep_steps}"
                 )
                 if writer is not None:
-                    writer.add_scalar("Eval/ArrivalRate", test_arrival_rate, total_steps)
+                    writer.add_scalar(
+                        "Eval/ArrivalRate", test_arrival_rate, total_steps
+                    )
                     writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
                     writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
 

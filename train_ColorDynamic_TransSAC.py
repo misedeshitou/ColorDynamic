@@ -13,6 +13,7 @@ from utils.TransSAC import TransSAC_agent
 def random_action_discrete(env):
     return torch.randint(low=0, high=env.action_dim, size=(env.N,), device=env.dvc)
 
+
 # fmt: off
 if __name__ == '__main__':
     '''Hyperparameter Setting for DRL'''
