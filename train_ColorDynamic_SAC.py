@@ -2,8 +2,10 @@ import argparse
 
 # import gymnasium as gym
 import os
+from datetime import datetime
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from Sparrow_V2 import Sparrow, str2bool
 from utils.SAC import SAC_agent
@@ -77,6 +79,39 @@ eval_env = Sparrow(**vars(opt))  # for eval
 agent = SAC_agent(**vars(opt))
 
 
+def evaluate(envs, agent, deterministic=True, turns=20):
+    step_collector, total_steps = torch.zeros(envs.N, device=envs.dvc), 0
+    r_collector, total_r = torch.zeros(envs.N, device=envs.dvc), 0
+    arrived, finished = 0, 0
+
+    s, info = envs.reset()
+    while finished < turns:
+        a = agent.select_action(s, deterministic)
+        s, r, dw, tr, info = envs.step(a)
+
+        dones = dw | tr
+        wins = r == envs.AWARD
+        dead_and_tr = dones ^ wins
+
+        step_collector += 1
+        total_steps += step_collector[wins].sum()
+        total_steps += (envs.max_ep_steps * dead_and_tr).sum()
+        step_collector[dones] = 0
+
+        r_collector += r
+        total_r += r_collector[dones].sum()
+        r_collector[dones] = 0
+
+        finished += int(dones.sum().item())
+        arrived += int(wins.sum().item())
+
+    return (
+        int(total_steps.item() / finished),
+        round(total_r.item() / finished, 2),
+        round(arrived / finished, 2),
+    )
+
+
 def random_action_test(discrete=True):
     # 采取随机动作测试环境
     if discrete:
@@ -110,6 +145,12 @@ def main():
     if not os.path.exists("model"):
         os.mkdir("model")
 
+    writer = None
+    if opt.write:
+        run_name = f"SAC-C{opt.O}-N{opt.N}-{datetime.now().strftime('%Y-%m-%d %H_%M')}"
+        writer = SummaryWriter(log_dir=os.path.join("runs_SAC", run_name))
+        writer.add_text("config", str(vars(opt)))
+
     total_steps = 0
     while total_steps < opt.Max_train_steps:
         s, info = env.reset()
@@ -132,8 +173,32 @@ def main():
             """update if its time"""
             # train 50 times every 50 steps rather than 1 training per step. Better!
             if total_steps >= opt.random_steps and total_steps % opt.update_every == 0:
+                train_info = None
                 for j in range(opt.update_every):
-                    agent.train()
+                    train_info = agent.train()
+
+                if writer is not None and train_info is not None:
+                    writer.add_scalar("Loss/Q", train_info["q_loss"], total_steps)
+                    writer.add_scalar("Loss/Actor", train_info["actor_loss"], total_steps)
+                    writer.add_scalar("Alpha/value", train_info["alpha"], total_steps)
+                    writer.add_scalar("Policy/Entropy", train_info["entropy"], total_steps)
+
+            if writer is not None and total_steps % 100 == 0:
+                writer.add_scalar("Train/RewardMean", r.mean().item(), total_steps)
+                writer.add_scalar("Train/DoneRate", done.float().mean().item(), total_steps)
+                writer.add_scalar("Buffer/Size", agent.replay_buffer.size, total_steps)
+
+            if total_steps > 0 and total_steps % opt.eval_interval == 0:
+                test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
+                    eval_env, agent, deterministic=True, turns=20
+                )
+                print(
+                    f"Eval@{total_steps}: ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps:{test_ep_steps}"
+                )
+                if writer is not None:
+                    writer.add_scalar("Eval/ArrivalRate", test_arrival_rate, total_steps)
+                    writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
+                    writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
 
             """record & log"""
             total_steps += 1
@@ -141,6 +206,8 @@ def main():
             """save model"""
             if total_steps % opt.save_interval == 0:
                 agent.save(int(total_steps / 1000))
+    if writer is not None:
+        writer.close()
     env.close()
     eval_env.close()
     print("Training Finished.")

@@ -9,6 +9,10 @@ from torch.utils.tensorboard import SummaryWriter
 from Sparrow_V2 import Sparrow, str2bool
 from utils.TransSAC import TransSAC_agent
 
+
+def random_action_discrete(env):
+    return torch.randint(low=0, high=env.action_dim, size=(env.N,), device=env.dvc)
+
 # fmt: off
 if __name__ == '__main__':
     '''Hyperparameter Setting for DRL'''
@@ -69,6 +73,13 @@ if __name__ == '__main__':
     parser.add_argument('--DR_freq', type=int, default=int(3.2e3), help='frequency of Domain Randomization, in total steps')
     parser.add_argument('--compile', type=str2bool, default=True, help='whether to use torch.compile to boost simulation speed')
     opt = parser.parse_args()
+    if opt.action_type != 'Discrete':
+        raise ValueError("TransSAC currently only supports discrete actions. Please set --action_type Discrete.")
+    opt.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    opt.run_dir = os.path.join("runs", "TransSAC", opt.run_timestamp)
+    opt.model_dir = os.path.join("model", "TransSAC", opt.run_timestamp)
+    os.makedirs(opt.run_dir, exist_ok=True)
+    os.makedirs(opt.model_dir, exist_ok=True)
     opt.render_mode = None # dont render when training
     opt.buffersize = min(int(1E6), opt.max_train_steps)
     # opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
@@ -86,6 +97,7 @@ if __name__ == '__main__':
     # Create Env & Agent
     env = Sparrow(**vars(opt))
     eval_env = Sparrow(**vars(opt))
+    opt.action_dim = env.action_dim
     agent = TransSAC_agent(**vars(opt))
 
 
@@ -133,15 +145,12 @@ def main():
     torch.backends.cudnn.benchmark = False
     print("Random Seed: {}".format(opt.seed))
 
-    if not os.path.exists("model"):
-        os.mkdir("model")
+    print(f"[TransSAC] logs -> {opt.run_dir}")
+    print(f"[TransSAC] models -> {opt.model_dir}")
 
     writer = None
     if opt.write:
-        run_name = (
-            f"TransSAC-C{opt.O}-N{opt.N}-{datetime.now().strftime('%Y-%m-%d %H_%M')}"
-        )
-        writer = SummaryWriter(log_dir=os.path.join("runs", run_name))
+        writer = SummaryWriter(log_dir=opt.run_dir)
         writer.add_text("config", str(vars(opt)))
 
     total_steps = 0
@@ -156,7 +165,7 @@ def main():
         while not done.all():
             # e-greedy exploration
             if total_steps < opt.random_steps:
-                a = torch.randint(0, opt.action_dim, (env.N,), device=env.dvc)
+                a = random_action_discrete(env)
                 agent.queue.append(s) # 维护队列
             else:
                 a = agent.select_action(s, deterministic=False)

@@ -1,11 +1,11 @@
 import copy
+import os
 import time
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions.categorical import Categorical
 
 from utils.TWQ import TimeWindowQueue_NTD
 from utils.utils_TransSAC import Double_Q_Net, Policy_Net, ReplayBuffer
@@ -24,6 +24,11 @@ def orthogonal_init(layer, gain=1.414):
 class TransSAC_agent:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+        if getattr(self, "action_type", "Discrete") != "Discrete":
+            raise ValueError(
+                "TransSAC currently supports only discrete action space. "
+                "Please set action_type='Discrete'."
+            )
         self.tau = 0.005
         self.H_mean = 0
 
@@ -82,8 +87,7 @@ class TransSAC_agent:
             if deterministic:
                 a = probs.argmax(-1)
             else:
-                dist = Categorical(probs)
-                a = dist.sample()
+                a = torch.multinomial(probs, num_samples=1).squeeze(1)
 
             return a
 
@@ -185,15 +189,28 @@ class TransSAC_agent:
         }
 
     def save(self, timestep):
-        torch.save(self.actor.state_dict(), f"./model/transsac_actor_{timestep}.pth")
+        model_dir = getattr(self, "model_dir", "model")
+        os.makedirs(model_dir, exist_ok=True)
         torch.save(
-            self.q_critic.state_dict(), f"./model/transsac_critic_{timestep}.pth"
+            self.actor.state_dict(),
+            os.path.join(model_dir, f"transsac_actor_{timestep}.pth"),
+        )
+        torch.save(
+            self.q_critic.state_dict(),
+            os.path.join(model_dir, f"transsac_critic_{timestep}.pth"),
         )
 
     def load(self, timestep):
+        model_dir = getattr(self, "model_dir", "model")
         self.actor.load_state_dict(
-            torch.load(f"./model/transsac_actor_{timestep}.pth", map_location=self.dvc)
+            torch.load(
+                os.path.join(model_dir, f"transsac_actor_{timestep}.pth"),
+                map_location=self.dvc,
+            )
         )
         self.q_critic.load_state_dict(
-            torch.load(f"./model/transsac_critic_{timestep}.pth", map_location=self.dvc)
+            torch.load(
+                os.path.join(model_dir, f"transsac_critic_{timestep}.pth"),
+                map_location=self.dvc,
+            )
         )
