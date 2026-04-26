@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import shutil
 from datetime import datetime
 
@@ -7,6 +8,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from Sparrow_V2 import Sparrow, str2bool
+from utils.DQN import DQN_agent
 from utils.Transqer import Transqer_agent
 
 # fmt: off
@@ -20,6 +22,17 @@ parser.add_argument('--net_width', type=int, default=64, help='Linear net width'
 parser.add_argument('--T', type=int, default=10, help='length of time window')
 parser.add_argument('--H', type=int, default=8, help='Number of Head')
 parser.add_argument('--L', type=int, default=3, help='Number of Transformer Encoder Layers')
+
+'''Hyperparameter Setting for DQN (for evaluation only)'''
+parser.add_argument('--model_type', type=str, default='dqn', choices=['dqn', 'transqer'], help='which checkpoint format to evaluate: dqn -> DQN_xxx.pth, transqer -> xxxk.pth')
+parser.add_argument('--dqn_net_width', type=int, default=200, help='DQN hidden width (must match training setting)')
+parser.add_argument('--lr', type=float, default=1e-4, help='DQN learning rate placeholder for optimizer init')
+parser.add_argument('--gamma', type=float, default=0.99, help='DQN gamma placeholder for agent init')
+parser.add_argument('--batch_size', type=int, default=256, help='DQN batch size placeholder for agent init')
+parser.add_argument('--exp_noise', type=float, default=0.0, help='DQN exploration noise during evaluation, recommend 0.0')
+parser.add_argument('--Double', type=str2bool, default=True, help='Whether DQN uses Double Q network')
+parser.add_argument('--Duel', type=str2bool, default=True, help='Whether DQN uses Dueling network')
+parser.add_argument('--deterministic', type=str2bool, default=True, help='use deterministic policy for evaluation')
 
 '''Hyperparameter Setting for Sparrow'''
 parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
@@ -63,29 +76,48 @@ def main():
     opt.state_dim = eval_envs.state_dim
     opt.action_dim = eval_envs.action_dim
 
-    # Init Transqer agent
-    agent = Transqer_agent(opt)
+    # Init agent
+    if opt.model_type == "dqn":
+        dqn_kwargs = vars(opt).copy()
+        dqn_kwargs["net_width"] = opt.dqn_net_width
+        agent = DQN_agent(**dqn_kwargs)
+    else:
+        agent = Transqer_agent(opt)
+
+    model_infos = get_model_infos("model", opt.model_type)
+    if len(model_infos) == 0:
+        print(f"No checkpoints found for model_type={opt.model_type} in ./model")
+        eval_envs.close()
+        return
 
     # use SummaryWriter to record the training curve
     timenow = str(datetime.now())[0:-10]
     timenow = " " + timenow[0:13] + "_" + timenow[-2::]
-    writepath = f"runs/ColorDynamic-C{opt.C}-N{opt.N}-" + timenow
+    writepath = f"runs/ColorDynamic-{opt.model_type}-C{opt.C}-N{opt.N}-" + timenow
     if os.path.exists(writepath):
         shutil.rmtree(writepath)
     writer = SummaryWriter(log_dir=writepath)
 
     results = []
-    for model_name in sorted(os.listdir("model"), key=lambda x: int(x[0:-5])):
-        model_idx = int(model_name[0:-5])
+    for model_name, model_idx in model_infos:
         agent.load(model_idx)
 
         """Model evaluation"""
         # ----------------------- 测试C种不同的地图，每次开N个并行环境，每个模型共evaluateC*N次 -----------------------
         ep_steps, ep_r, arrival_rate = 0, 0, 0
         for _ in range(opt.C):
-            temp_ep_steps, temp_ep_r, temp_arrival_rate = vectorized_model_evaluation(
-                eval_envs, agent, deterministic=False
-            )
+            if opt.model_type == "dqn":
+                temp_ep_steps, temp_ep_r, temp_arrival_rate = (
+                    vectorized_model_evaluation_dqn(
+                        eval_envs, agent, deterministic=opt.deterministic
+                    )
+                )
+            else:
+                temp_ep_steps, temp_ep_r, temp_arrival_rate = (
+                    vectorized_model_evaluation_transqer(
+                        eval_envs, agent, deterministic=opt.deterministic
+                    )
+                )
             ep_steps += temp_ep_steps
             ep_r += temp_ep_r
             arrival_rate += temp_arrival_rate
@@ -130,7 +162,23 @@ def main():
     eval_envs.close()
 
 
-def vectorized_model_evaluation(envs, agent, deterministic):
+def get_model_infos(model_dir, model_type):
+    model_infos = []
+    if model_type == "dqn":
+        pattern = re.compile(r"^DQN_(\d+)\.pth$")
+    else:
+        pattern = re.compile(r"^(\d+)k\.pth$")
+
+    for model_name in os.listdir(model_dir):
+        m = pattern.match(model_name)
+        if m is not None:
+            model_idx = int(m.group(1))
+            model_infos.append((model_name, model_idx))
+
+    return sorted(model_infos, key=lambda x: x[1])
+
+
+def vectorized_model_evaluation_transqer(envs, agent, deterministic):
     step_collector, total_steps = torch.zeros(opt.N, device=opt.dvc), 0
     r_collector, total_r = torch.zeros(opt.N, device=opt.dvc), 0
     arrived_vec = torch.zeros(opt.N, dtype=torch.bool, device=opt.dvc)
@@ -169,6 +217,44 @@ def vectorized_model_evaluation(envs, agent, deterministic):
         r_collector[dones] = 0
 
         """统计到达率："""
+        arrived_vec += ~finished_vec & wins  # 仅记录第一次win，防止二考刷分
+        finished_vec += dones
+        finished += dones.sum()
+
+    return (
+        total_steps.item() / finished.item(),
+        total_r.item() / finished.item(),
+        arrived_vec.sum().item() / opt.N,
+    )
+
+
+def vectorized_model_evaluation_dqn(envs, agent, deterministic):
+    step_collector, total_steps = torch.zeros(opt.N, device=opt.dvc), 0
+    r_collector, total_r = torch.zeros(opt.N, device=opt.dvc), 0
+    arrived_vec = torch.zeros(opt.N, dtype=torch.bool, device=opt.dvc)
+    finished_vec = torch.zeros(opt.N, dtype=torch.bool, device=opt.dvc)
+    finished = 0
+
+    s, info = envs.reset()
+    while not finished_vec.all():
+        a = agent.select_action(s, deterministic)
+        s, r, dw, tr, info = envs.step(a)
+
+        dones = envs.done_vec  # (N)
+        wins = envs.win_vec  # (N)
+        dead_and_tr = dones ^ wins  # dones-wins = deads and truncateds
+
+        step_collector += 1
+        total_steps += step_collector[wins].sum()  # 到达,总步数加上真实步数
+        total_steps += (
+            envs.max_ep_steps * dead_and_tr
+        ).sum()  # 未到达,总步数加上回合最大步数
+        step_collector[dones] = 0
+
+        r_collector += r
+        total_r += r_collector[dones].sum()
+        r_collector[dones] = 0
+
         arrived_vec += ~finished_vec & wins  # 仅记录第一次win，防止二考刷分
         finished_vec += dones
         finished += dones.sum()
