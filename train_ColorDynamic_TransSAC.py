@@ -2,14 +2,12 @@ import argparse
 import os
 import re
 import sys
-import re
-import sys
 from datetime import datetime
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
-# torch.set_num_threads(4) # 甚至可以尝试 1 或 2
 
+# torch.set_num_threads(4) # 甚至可以尝试 1 或 2
 # from utils.utils_TransSAC import evaluate_policy
 from Sparrow_V2 import Sparrow, str2bool
 from utils.TransSAC import TransSAC_agent
@@ -88,8 +86,6 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--max_train_steps', type=int, default=5e7, help='Max training steps')
     parser.add_argument('--save_interval', type=int, default=5e4, help='Model saving interval, in steps.')
-    parser.add_argument('--eval_interval', type=int, default=5e3, help='Model evaluating interval, in steps.')
-    parser.add_argument('--eval_enable', type=str2bool, default=False, help='Enable periodic evaluation during training')
     parser.add_argument('--eval_interval', type=int, default=5e3, help='Model evaluating interval, in steps.')
     parser.add_argument('--eval_enable', type=str2bool, default=False, help='Enable periodic evaluation during training')
     parser.add_argument('--random_steps', type=int, default=1e4, help='steps for random policy to explore')
@@ -191,39 +187,6 @@ if __name__ == '__main__':
         opt.initial_total_steps = int(opt.resume_total_steps)
 
 
-    # Backward compatibility: old checkpoints are saved under project_root/model
-    if opt.load_model_dir is not None and str(opt.load_model_dir).strip() != "":
-        opt.load_model_dir = os.path.normpath(
-            opt.load_model_dir
-            if os.path.isabs(opt.load_model_dir)
-            else os.path.join(project_root, opt.load_model_dir)
-        )
-    elif opt.resume_from is not None:
-        opt.load_model_dir = opt.model_dir
-    else:
-        opt.load_model_dir = os.path.join(project_root, "model")
-
-    latest_kstep = None
-    if opt.Loadmodel and opt.ModelIndex < 0:
-        latest_kstep = _get_latest_transsac_kstep(opt.load_model_dir)
-        if latest_kstep is None:
-            raise FileNotFoundError(
-                f"No TransSAC checkpoint found in load_model_dir: {opt.load_model_dir}"
-            )
-        opt.ModelIndex = latest_kstep
-
-    if opt.resume_from is not None and not opt.Loadmodel:
-        latest_kstep = _get_latest_transsac_kstep(opt.load_model_dir)
-        if latest_kstep is not None:
-            opt.Loadmodel = True
-            opt.ModelIndex = latest_kstep
-
-    opt.initial_total_steps = 0
-    if opt.Loadmodel:
-        opt.initial_total_steps = int(opt.ModelIndex) * 1000
-    if opt.resume_total_steps is not None:
-        opt.initial_total_steps = int(opt.resume_total_steps)
-
     opt.render_mode = None # dont render when training
     opt.buffersize = min(int(1E6), opt.max_train_steps)
     # opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
@@ -236,15 +199,6 @@ if __name__ == '__main__':
    # Seed Everything
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
-    if opt.fast_mode:
-        torch.backends.cudnn.deterministic = False
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.set_float32_matmul_precision("high")
-    else:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
     if opt.fast_mode:
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
@@ -334,10 +288,6 @@ def main():
         if opt.initial_total_steps > 0:
             writer_kwargs["purge_step"] = opt.initial_total_steps
         writer = SummaryWriter(**writer_kwargs)
-        writer_kwargs = {"log_dir": opt.run_dir}
-        if opt.initial_total_steps > 0:
-            writer_kwargs["purge_step"] = opt.initial_total_steps
-        writer = SummaryWriter(**writer_kwargs)
         writer.add_text("config", str(vars(opt)))
     # ==============================================================
 
@@ -415,8 +365,6 @@ def main():
         writer.close()
 
     env.close()
-    if eval_env is not None:
-        eval_env.close()
     if eval_env is not None:
         eval_env.close()
     print("Training Finished.")
