@@ -2,10 +2,13 @@ import argparse
 import os
 import re
 import sys
+import re
+import sys
 from datetime import datetime
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
+# torch.set_num_threads(4) # 甚至可以尝试 1 或 2
 
 # from utils.utils_TransSAC import evaluate_policy
 from Sparrow_V2 import Sparrow, str2bool
@@ -87,16 +90,18 @@ if __name__ == '__main__':
     parser.add_argument('--save_interval', type=int, default=5e4, help='Model saving interval, in steps.')
     parser.add_argument('--eval_interval', type=int, default=5e3, help='Model evaluating interval, in steps.')
     parser.add_argument('--eval_enable', type=str2bool, default=False, help='Enable periodic evaluation during training')
+    parser.add_argument('--eval_interval', type=int, default=5e3, help='Model evaluating interval, in steps.')
+    parser.add_argument('--eval_enable', type=str2bool, default=False, help='Enable periodic evaluation during training')
     parser.add_argument('--random_steps', type=int, default=1e4, help='steps for random policy to explore')
-    parser.add_argument('--update_every', type=int, default=50, help='training frequency')
-    parser.add_argument('--train_repeat', type=int, default=1, help='Extra train repeats per update trigger (increase to raise GPU utilization)')
+    parser.add_argument('--update_every', type=int, default=10, help='training frequency')
+    parser.add_argument('--train_repeat', type=int, default=4, help='Extra train repeats per update trigger (increase to raise GPU utilization)')
     parser.add_argument('--fast_mode', type=str2bool, default=True, help='Use faster (non-deterministic) backend settings for higher throughput')
 
     parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
     parser.add_argument('--net_width', type=int, default=64, help='Linear net width')
     parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape')
-    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
-    parser.add_argument('--batch_size', type=int, default=256, help='batch size')
+    parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate')
+    parser.add_argument('--batch_size', type=int, default=512, help='batch size')
     parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
     parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
 
@@ -110,7 +115,7 @@ if __name__ == '__main__':
     parser.add_argument('--action_type', type=str, default='Discrete', help='Action type: Discrete / Continuous')
     parser.add_argument('--window_size', type=int, default=800, help='size of the training map')
     parser.add_argument('--D', type=int, default=400, help='maximal local planning distance')
-    parser.add_argument('--N', type=int, default=32, help='number of vectorized environments')
+    parser.add_argument('--N', type=int, default=64, help='number of vectorized environments')
     parser.add_argument('--O', type=int, default=15, help='number of obstacles in each environment')
     parser.add_argument('--RdON', type=str2bool, default=False, help='whether to randomize the Number of dynamic obstacles')
     parser.add_argument('--ScOV', type=str2bool, default=False, help='whether to scale the maximal velocity of dynamic obstacles')
@@ -185,6 +190,40 @@ if __name__ == '__main__':
     if opt.resume_total_steps is not None:
         opt.initial_total_steps = int(opt.resume_total_steps)
 
+
+    # Backward compatibility: old checkpoints are saved under project_root/model
+    if opt.load_model_dir is not None and str(opt.load_model_dir).strip() != "":
+        opt.load_model_dir = os.path.normpath(
+            opt.load_model_dir
+            if os.path.isabs(opt.load_model_dir)
+            else os.path.join(project_root, opt.load_model_dir)
+        )
+    elif opt.resume_from is not None:
+        opt.load_model_dir = opt.model_dir
+    else:
+        opt.load_model_dir = os.path.join(project_root, "model")
+
+    latest_kstep = None
+    if opt.Loadmodel and opt.ModelIndex < 0:
+        latest_kstep = _get_latest_transsac_kstep(opt.load_model_dir)
+        if latest_kstep is None:
+            raise FileNotFoundError(
+                f"No TransSAC checkpoint found in load_model_dir: {opt.load_model_dir}"
+            )
+        opt.ModelIndex = latest_kstep
+
+    if opt.resume_from is not None and not opt.Loadmodel:
+        latest_kstep = _get_latest_transsac_kstep(opt.load_model_dir)
+        if latest_kstep is not None:
+            opt.Loadmodel = True
+            opt.ModelIndex = latest_kstep
+
+    opt.initial_total_steps = 0
+    if opt.Loadmodel:
+        opt.initial_total_steps = int(opt.ModelIndex) * 1000
+    if opt.resume_total_steps is not None:
+        opt.initial_total_steps = int(opt.resume_total_steps)
+
     opt.render_mode = None # dont render when training
     opt.buffersize = min(int(1E6), opt.max_train_steps)
     # opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
@@ -197,6 +236,15 @@ if __name__ == '__main__':
    # Seed Everything
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
+    if opt.fast_mode:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
+    else:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     if opt.fast_mode:
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
@@ -251,9 +299,13 @@ def evaluate(envs, agent, deterministic=True, turns=20):
     )
 
 def main():
-     # Seed Everything
+    # Seed Everything
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
+    
+    # 限制 CPU 线程数，防止多线程空转抢夺 CPU 导致 100% 满载
+    torch.set_num_threads(4) 
+    
     if opt.fast_mode:
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
@@ -263,107 +315,108 @@ def main():
     else:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+        
     print("Random Seed: {}".format(opt.seed))
-
     print(f"[TransSAC] logs -> {opt.run_dir}")
     print(f"[TransSAC] models -> {opt.model_dir}")
     print(f"[TransSAC] fast_mode={opt.fast_mode}, eval_enable={opt.eval_enable}, train_repeat={opt.train_repeat}")
+    
     if opt.Loadmodel:
         print(f"[TransSAC] resume ckpt -> {os.path.join(opt.load_model_dir, f'transsac_actor_{opt.ModelIndex}.pth')}")
+        agent.load(opt.ModelIndex, model_dir=opt.load_model_dir)
+        
     print(f"[TransSAC] start total_steps -> {opt.initial_total_steps}")
 
-    if opt.Loadmodel:
-        agent.load(opt.ModelIndex, model_dir=opt.load_model_dir)
-
+    # ================= 恢复被遗漏的 writer 初始化 =================
     writer = None
     if opt.write:
         writer_kwargs = {"log_dir": opt.run_dir}
         if opt.initial_total_steps > 0:
             writer_kwargs["purge_step"] = opt.initial_total_steps
         writer = SummaryWriter(**writer_kwargs)
+        writer_kwargs = {"log_dir": opt.run_dir}
+        if opt.initial_total_steps > 0:
+            writer_kwargs["purge_step"] = opt.initial_total_steps
+        writer = SummaryWriter(**writer_kwargs)
         writer.add_text("config", str(vars(opt)))
+    # ==============================================================
 
     total_steps = int(opt.initial_total_steps)
+    
+    s, info = env.reset()
+    
+    # 重置环境时清空智能体的时间窗记忆
+    agent.queue.clear() 
+
+    # ================= 展平的主循环，去除 while not done.all() 死循环 =================
     while total_steps < opt.max_train_steps:
-        s, info = env.reset()
-        
-        # --- 重置环境时清空智能体的时间窗记忆 ---
-        agent.queue.clear()
-        
-        done = torch.zeros(env.N, dtype=torch.bool, device=env.dvc)
-
-        while not done.all():
-            # e-greedy exploration
-            if total_steps < opt.random_steps:
-                a = random_action_discrete(env)
-                agent.queue.append(s) # 维护队列
-            else:
-                a = agent.select_action(s, deterministic=False)
-            s_next, r, dw, tr, info = env.step(a)
+        # e-greedy exploration
+        if total_steps < opt.random_steps:
+            a = random_action_discrete(env)
+            agent.queue.append(s) # 维护队列
+        else:
+            a = agent.select_action(s, deterministic=False)
             
-            # --- 如果部分并行环境结束，清除这些环境对应的历史记录 ---
-            dones = dw | tr
-            if dones.any():
-                agent.queue.padding_with_done(dones)
+        s_next, r, dw, tr, info = env.step(a)
+        
+        # --- 判断哪些环境结束了，清除这些环境对应的历史记录 ---
+        dones = dw | tr
+        if dones.any():
+            agent.queue.padding_with_done(dones)
 
-            # (Buffer 存的是单帧，采样时会自动溯源 T 步)
-            agent.replay_buffer.add_batch(s, a, r, s_next, dw)
-            s = s_next
+        # (Buffer 存的是单帧，采样时会自动溯源 T 步)
+        agent.replay_buffer.add_batch(s, a, r, s_next, dw)
+        s = s_next
 
-            """update if its time"""
-            # train 50 times every 50 steps rather than 1 training per step. Better!
-            if total_steps >= opt.random_steps and total_steps % opt.update_every == 0:
-                train_info = None
-                update_loops = max(1, int(opt.update_every * opt.train_repeat))
-                for _ in range(update_loops):
-                    train_info = agent.train()
+        """update if its time"""
+        # train multiple times every update_every steps
+        if total_steps >= opt.random_steps and total_steps % opt.update_every == 0:
+            train_info = None
+            update_loops = max(1, int(opt.update_every * opt.train_repeat))
+            for _ in range(update_loops):
+                train_info = agent.train()
 
-                if writer is not None and train_info is not None:
-                    writer.add_scalar("Loss/Q", train_info["q_loss"], total_steps)
-                    writer.add_scalar(
-                        "Loss/Actor", train_info["actor_loss"], total_steps
-                    )
-                    writer.add_scalar("Alpha/value", train_info["alpha"], total_steps)
-                    writer.add_scalar(
-                        "Policy/Entropy", train_info["entropy"], total_steps
-                    )
+            if writer is not None and train_info is not None:
+                writer.add_scalar("Loss/Q", train_info["q_loss"], total_steps)
+                writer.add_scalar("Loss/Actor", train_info["actor_loss"], total_steps)
+                writer.add_scalar("Alpha/value", train_info["alpha"], total_steps)
+                writer.add_scalar("Policy/Entropy", train_info["entropy"], total_steps)
 
-            if writer is not None and total_steps % 100 == 0:
-                writer.add_scalar("Train/RewardMean", r.mean().item(), total_steps)
-                writer.add_scalar("Train/DoneRate", dones.float().mean().item(), total_steps)
-                writer.add_scalar("Buffer/Size", agent.replay_buffer.size, total_steps)
+        # 频率从 100 降到 1000，减少调用 .item() 引发的 CPU-GPU 强制同步开销
+        if writer is not None and total_steps % 1000 == 0:
+            writer.add_scalar("Train/RewardMean", r.mean().item(), total_steps)
+            writer.add_scalar("Train/DoneRate", dones.float().mean().item(), total_steps)
+            writer.add_scalar("Buffer/Size", agent.replay_buffer.size, total_steps)
 
-            if (
-                opt.eval_enable
-                and eval_env is not None
-                and total_steps > 0
-                and total_steps % opt.eval_interval == 0
-            ):
-                test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
-                    eval_env, agent, deterministic=True, turns=20
-                )
-                print(
-                    f"Eval@{total_steps}: ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps:{test_ep_steps}"
-                )
-                if writer is not None:
-                    writer.add_scalar("Eval/ArrivalRate", test_arrival_rate, total_steps)
-                    writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
-                    writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
+        if (
+            opt.eval_enable
+            and eval_env is not None
+            and total_steps > 0
+            and total_steps % opt.eval_interval == 0
+        ):
+            test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
+                eval_env, agent, deterministic=True, turns=20
+            )
+            print(
+                f"Eval@{total_steps}: ArrivalRate:{test_arrival_rate}, Reward:{test_ep_r}, Steps:{test_ep_steps}"
+            )
+            if writer is not None:
+                writer.add_scalar("Eval/ArrivalRate", test_arrival_rate, total_steps)
+                writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
+                writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
 
-            total_steps += 1
+        total_steps += 1
 
-            """save model"""
-            # if total_steps % opt.eval_interval == 0:
-            #     score = evaluate_policy(eval_env, agent, turns=2)
-            #     print(f"Total Steps: {total_steps} | Eval Score: {score}")
-
-            if total_steps % opt.save_interval == 0:
-                agent.save(int(total_steps / 1000))
+        """save model"""
+        if total_steps % opt.save_interval == 0:
+            agent.save(int(total_steps / 1000))
 
     if writer is not None:
         writer.close()
 
     env.close()
+    if eval_env is not None:
+        eval_env.close()
     if eval_env is not None:
         eval_env.close()
     print("Training Finished.")
