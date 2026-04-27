@@ -149,14 +149,16 @@ class ReplayBuffer(object):
         # 确保 ind-T+1 > 0
         ind = torch.randint(self.T, self.size, size=(batch_size,), device=self.dvc)
 
-        # 动态构建时间窗 TW_s: (B, T, D)
-        # 我们按照 [t, t-1, t-2... t-T+1] 的顺序堆叠，匹配你 TWQ 的顺序
-        tw_s = torch.stack([self.s[ind - i] for i in range(self.T)], dim=1)
+        # 向量化构建时间窗，避免 Python 循环带来的 CPU 开销
+        # [t, t-1, ..., t-T+1]
+        offsets = torch.arange(self.T, device=self.dvc)
+        tw_idx = ind.unsqueeze(1) - offsets.unsqueeze(0)
+        tw_s = self.s[tw_idx]
 
-        # 构建 TW_s_next: 就是把索引往后挪一位 [t+1, t, t-1... t-T+2]
-        # 注意：简单起见，这里 ind+1 只要不超过 size 即可
+        # [t+1, t, ..., t-T+2]
         next_ind = (ind + 1) % self.size
-        tw_s_next = torch.stack([self.s[next_ind - i] for i in range(self.T)], dim=1)
+        tw_next_idx = next_ind.unsqueeze(1) - offsets.unsqueeze(0)
+        tw_s_next = self.s[tw_next_idx]
 
         return tw_s, self.a[ind], self.r[ind], tw_s_next, self.dw[ind]
 

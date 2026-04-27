@@ -200,8 +200,8 @@ class TransSAC_agent:
             os.path.join(model_dir, f"transsac_critic_{timestep}.pth"),
         )
 
-    def load(self, timestep):
-        model_dir = getattr(self, "model_dir", "model")
+    def load(self, timestep, model_dir=None):
+        model_dir = model_dir or getattr(self, "model_dir", "model")
         self.actor.load_state_dict(
             torch.load(
                 os.path.join(model_dir, f"transsac_actor_{timestep}.pth"),
@@ -214,3 +214,4 @@ class TransSAC_agent:
                 map_location=self.dvc,
             )
         )
+        self.q_critic_target.load_state_dict(self.q_critic.state_dict())

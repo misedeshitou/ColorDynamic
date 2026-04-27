@@ -1,5 +1,7 @@
 import argparse
 import os
+import re
+import sys
 from datetime import datetime
 
 import torch
@@ -14,6 +16,60 @@ def random_action_discrete(env):
     return torch.randint(low=0, high=env.action_dim, size=(env.N,), device=env.dvc)
 
 
+def _get_latest_transsac_kstep(model_dir):
+    if not os.path.isdir(model_dir):
+        return None
+
+    pattern = re.compile(r"^transsac_actor_(\d+)\.pth$")
+    latest_kstep = None
+    for name in os.listdir(model_dir):
+        matched = pattern.match(name)
+        if matched is None:
+            continue
+
+        kstep = int(matched.group(1))
+        if latest_kstep is None or kstep > latest_kstep:
+            latest_kstep = kstep
+    return latest_kstep
+
+
+def _resolve_resume_dirs(project_root, resume_from):
+    if resume_from is None or str(resume_from).strip() == "":
+        return None
+
+    text = str(resume_from).strip().rstrip("/")
+    if os.path.isabs(text):
+        run_dir = text
+    elif text.startswith("runs/"):
+        run_dir = os.path.join(project_root, text)
+    elif text.startswith("TransSAC/"):
+        run_dir = os.path.join(project_root, "runs", text)
+    else:
+        run_dir = os.path.join(project_root, "runs", "TransSAC", text)
+
+    run_dir = os.path.normpath(run_dir)
+    run_timestamp = os.path.basename(run_dir)
+    model_dir = os.path.normpath(
+        os.path.join(project_root, "model", "TransSAC", run_timestamp)
+    )
+    return run_dir, model_dir, run_timestamp
+
+
+def _normalize_cli_argv(argv):
+    """兼容误写参数：--ModelIndex-1 -> --ModelIndex -1"""
+    normalized = [argv[0]]
+    pattern = re.compile(r"^--ModelIndex(-?\d+)$")
+
+    for token in argv[1:]:
+        matched = pattern.match(token)
+        if matched is not None:
+            normalized.extend(["--ModelIndex", matched.group(1)])
+        else:
+            normalized.append(token)
+
+    return normalized
+
+
 # fmt: off
 if __name__ == '__main__':
     '''Hyperparameter Setting for DRL'''
@@ -21,14 +77,20 @@ if __name__ == '__main__':
     parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
     parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
     parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
-    parser.add_argument('--ModelIndex', type=int, default=500, help='which model to load')
+    parser.add_argument('--ModelIndex', type=int, default=-1, help='which model to load (k steps), -1 means latest')
+    parser.add_argument('--resume_from', type=str, default=None, help='Resume from timestamp/path, e.g. 20260424_130245 or runs/TransSAC/20260424_130245')
+    parser.add_argument('--resume_total_steps', type=int, default=None, help='Manually set resumed total steps (overrides auto infer)')
+    parser.add_argument('--load_model_dir', type=str, default=None, help='Checkpoint directory used only for loading model')
 
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--max_train_steps', type=int, default=5e7, help='Max training steps')
     parser.add_argument('--save_interval', type=int, default=5e4, help='Model saving interval, in steps.')
-    parser.add_argument('--eval_interval', type=int, default=2e3, help='Model evaluating interval, in steps.')
+    parser.add_argument('--eval_interval', type=int, default=5e3, help='Model evaluating interval, in steps.')
+    parser.add_argument('--eval_enable', type=str2bool, default=False, help='Enable periodic evaluation during training')
     parser.add_argument('--random_steps', type=int, default=1e4, help='steps for random policy to explore')
     parser.add_argument('--update_every', type=int, default=50, help='training frequency')
+    parser.add_argument('--train_repeat', type=int, default=1, help='Extra train repeats per update trigger (increase to raise GPU utilization)')
+    parser.add_argument('--fast_mode', type=str2bool, default=True, help='Use faster (non-deterministic) backend settings for higher throughput')
 
     parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
     parser.add_argument('--net_width', type=int, default=64, help='Linear net width')
@@ -73,14 +135,56 @@ if __name__ == '__main__':
     parser.add_argument('--DR', type=str2bool, default=True, help='whether to use Domain Randomization')
     parser.add_argument('--DR_freq', type=int, default=int(3.2e3), help='frequency of Domain Randomization, in total steps')
     parser.add_argument('--compile', type=str2bool, default=True, help='whether to use torch.compile to boost simulation speed')
-    opt = parser.parse_args()
+    normalized_argv = _normalize_cli_argv(sys.argv)
+    opt = parser.parse_args(normalized_argv[1:])
     if opt.action_type != 'Discrete':
         raise ValueError("TransSAC currently only supports discrete actions. Please set --action_type Discrete.")
-    opt.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    opt.run_dir = os.path.join("runs", "TransSAC", opt.run_timestamp)
-    opt.model_dir = os.path.join("model", "TransSAC", opt.run_timestamp)
+    project_root = os.path.dirname(os.path.abspath(__file__))
+
+    resume_dirs = _resolve_resume_dirs(project_root, opt.resume_from)
+    if resume_dirs is None:
+        opt.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        opt.run_dir = os.path.join(project_root, "runs", "TransSAC", opt.run_timestamp)
+        opt.model_dir = os.path.join(project_root, "model", "TransSAC", opt.run_timestamp)
+    else:
+        opt.run_dir, opt.model_dir, opt.run_timestamp = resume_dirs
+
     os.makedirs(opt.run_dir, exist_ok=True)
     os.makedirs(opt.model_dir, exist_ok=True)
+
+    # Backward compatibility: old checkpoints are saved under project_root/model
+    if opt.load_model_dir is not None and str(opt.load_model_dir).strip() != "":
+        opt.load_model_dir = os.path.normpath(
+            opt.load_model_dir
+            if os.path.isabs(opt.load_model_dir)
+            else os.path.join(project_root, opt.load_model_dir)
+        )
+    elif opt.resume_from is not None:
+        opt.load_model_dir = opt.model_dir
+    else:
+        opt.load_model_dir = os.path.join(project_root, "model")
+
+    latest_kstep = None
+    if opt.Loadmodel and opt.ModelIndex < 0:
+        latest_kstep = _get_latest_transsac_kstep(opt.load_model_dir)
+        if latest_kstep is None:
+            raise FileNotFoundError(
+                f"No TransSAC checkpoint found in load_model_dir: {opt.load_model_dir}"
+            )
+        opt.ModelIndex = latest_kstep
+
+    if opt.resume_from is not None and not opt.Loadmodel:
+        latest_kstep = _get_latest_transsac_kstep(opt.load_model_dir)
+        if latest_kstep is not None:
+            opt.Loadmodel = True
+            opt.ModelIndex = latest_kstep
+
+    opt.initial_total_steps = 0
+    if opt.Loadmodel:
+        opt.initial_total_steps = int(opt.ModelIndex) * 1000
+    if opt.resume_total_steps is not None:
+        opt.initial_total_steps = int(opt.resume_total_steps)
+
     opt.render_mode = None # dont render when training
     opt.buffersize = min(int(1E6), opt.max_train_steps)
     # opt.reset_freq = int(opt.reset_freq / opt.N)  # Tsteps -> Vsteps
@@ -93,11 +197,19 @@ if __name__ == '__main__':
    # Seed Everything
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
-    torch.backends.cudnn.deterministic = True
+    if opt.fast_mode:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
+    else:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     # Create Env & Agent
     env = Sparrow(**vars(opt))
-    eval_env = Sparrow(**vars(opt))
+    eval_env = Sparrow(**vars(opt)) if opt.eval_enable else None
     opt.action_dim = env.action_dim
     agent = TransSAC_agent(**vars(opt))
 
@@ -142,19 +254,36 @@ def main():
      # Seed Everything
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    if opt.fast_mode:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
+    else:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     print("Random Seed: {}".format(opt.seed))
 
     print(f"[TransSAC] logs -> {opt.run_dir}")
     print(f"[TransSAC] models -> {opt.model_dir}")
+    print(f"[TransSAC] fast_mode={opt.fast_mode}, eval_enable={opt.eval_enable}, train_repeat={opt.train_repeat}")
+    if opt.Loadmodel:
+        print(f"[TransSAC] resume ckpt -> {os.path.join(opt.load_model_dir, f'transsac_actor_{opt.ModelIndex}.pth')}")
+    print(f"[TransSAC] start total_steps -> {opt.initial_total_steps}")
+
+    if opt.Loadmodel:
+        agent.load(opt.ModelIndex, model_dir=opt.load_model_dir)
 
     writer = None
     if opt.write:
-        writer = SummaryWriter(log_dir=opt.run_dir)
+        writer_kwargs = {"log_dir": opt.run_dir}
+        if opt.initial_total_steps > 0:
+            writer_kwargs["purge_step"] = opt.initial_total_steps
+        writer = SummaryWriter(**writer_kwargs)
         writer.add_text("config", str(vars(opt)))
 
-    total_steps = 0
+    total_steps = int(opt.initial_total_steps)
     while total_steps < opt.max_train_steps:
         s, info = env.reset()
         
@@ -185,7 +314,8 @@ def main():
             # train 50 times every 50 steps rather than 1 training per step. Better!
             if total_steps >= opt.random_steps and total_steps % opt.update_every == 0:
                 train_info = None
-                for _ in range(opt.update_every):
+                update_loops = max(1, int(opt.update_every * opt.train_repeat))
+                for _ in range(update_loops):
                     train_info = agent.train()
 
                 if writer is not None and train_info is not None:
@@ -203,7 +333,12 @@ def main():
                 writer.add_scalar("Train/DoneRate", dones.float().mean().item(), total_steps)
                 writer.add_scalar("Buffer/Size", agent.replay_buffer.size, total_steps)
 
-            if total_steps > 0 and total_steps % opt.eval_interval == 0:
+            if (
+                opt.eval_enable
+                and eval_env is not None
+                and total_steps > 0
+                and total_steps % opt.eval_interval == 0
+            ):
                 test_ep_steps, test_ep_r, test_arrival_rate = evaluate(
                     eval_env, agent, deterministic=True, turns=20
                 )
@@ -229,7 +364,8 @@ def main():
         writer.close()
 
     env.close()
-    eval_env.close()
+    if eval_env is not None:
+        eval_env.close()
     print("Training Finished.")
 
 if __name__ == "__main__":
