@@ -215,45 +215,7 @@ if __name__ == '__main__':
     opt.action_dim = env.action_dim
     agent = TransSAC_agent(**vars(opt))
 
-
-def evaluate(envs, agent, deterministic=True, turns=20):
-    step_collector, total_steps = torch.zeros(envs.N, device=envs.dvc), 0
-    r_collector, total_r = torch.zeros(envs.N, device=envs.dvc), 0
-    arrived, finished = 0, 0
-
-    agent.queue.clear()
-    s, info = envs.reset()
-    while finished < turns:
-        a = agent.select_action(s, deterministic)
-        s, r, dw, tr, info = envs.step(a)
-
-        dones = dw + tr
-        wins = r == envs.AWARD
-        dead_and_tr = dones ^ wins
-
-        if dones.any():
-            agent.queue.padding_with_done(dones)
-
-        step_collector += 1
-        total_steps += step_collector[wins].sum()
-        total_steps += (envs.max_ep_steps * dead_and_tr).sum()
-        step_collector[dones] = 0
-
-        r_collector += r
-        total_r += r_collector[dones].sum()
-        r_collector[dones] = 0
-
-        finished += int(dones.sum().item())
-        arrived += int(wins.sum().item())
-
-    return (
-        int(total_steps.item() / finished),
-        round(total_r.item() / finished, 2),
-        round(arrived / finished, 2),
-    )
-
-def main():
-    # Seed Everything
+# Seed Everything
     torch.manual_seed(opt.seed)
     torch.cuda.manual_seed(opt.seed)
     
@@ -368,6 +330,42 @@ def main():
     if eval_env is not None:
         eval_env.close()
     print("Training Finished.")
+
+def evaluate(envs, agent, deterministic=True, turns=20):
+    step_collector, total_steps = torch.zeros(envs.N, device=envs.dvc), 0
+    r_collector, total_r = torch.zeros(envs.N, device=envs.dvc), 0
+    arrived, finished = 0, 0
+
+    agent.queue.clear()
+    s, info = envs.reset()
+    while finished < turns:
+        a = agent.select_action(s, deterministic)
+        s, r, dw, tr, info = envs.step(a)
+
+        dones = dw + tr
+        wins = r == envs.AWARD
+        dead_and_tr = dones ^ wins
+
+        if dones.any():
+            agent.queue.padding_with_done(dones)
+
+        step_collector += 1
+        total_steps += step_collector[wins].sum()
+        total_steps += (envs.max_ep_steps * dead_and_tr).sum()
+        step_collector[dones] = 0
+
+        r_collector += r
+        total_r += r_collector[dones].sum()
+        r_collector[dones] = 0
+
+        finished += int(dones.sum().item())
+        arrived += int(wins.sum().item())
+
+    return (
+        int(total_steps.item() / finished),
+        round(total_r.item() / finished, 2),
+        round(arrived / finished, 2),
+    )
 
 if __name__ == "__main__":
     main()
