@@ -18,8 +18,8 @@ parser.add_argument('--C', type=int, default=10, help='number of reset times')
 parser.add_argument('--N', type=int, default=10, help='number of vectorized environments')
 parser.add_argument('--deterministic', type=str2bool, default=True, help='whether to use deterministic policy when evaluating')
 
-"""SAC-ASL checkpoint setting"""
-parser.add_argument('--model_root', type=str, default='model/SAC_ASL', help='root folder of SAC-ASL checkpoints')
+"""SAC checkpoint setting"""
+parser.add_argument('--model_root', type=str, default='model/old_SAC', help='root folder of SAC checkpoints')
 parser.add_argument('--run_dir', type=str, default='', help='timestamp subfolder under model_root (empty means latest)')
 
 """Hyperparameter Setting for SAC (for network build only)"""
@@ -73,7 +73,9 @@ def resolve_ckpt_dir(model_root, run_dir):
         return model_root
 
     # if actor checkpoints are directly under model_root, use it directly
-    direct_actor = [f for f in os.listdir(model_root) if re.match(r'^sacd_actor_\d+\.pth$', f)]
+    direct_actor = [
+        f for f in os.listdir(model_root) if re.match(r"^sacd_actor_\d+\.pth$", f)
+    ]
     if direct_actor:
         return model_root
 
@@ -95,7 +97,7 @@ def list_actor_ckpts(ckpt_dir):
 
     pairs = []
     for name in os.listdir(ckpt_dir):
-        m = re.match(r'^sacd_actor_(\d+)\.pth$', name)
+        m = re.match(r"^sacd_actor_(\d+)\.pth$", name)
         if m:
             pairs.append((int(m.group(1)), os.path.join(ckpt_dir, name)))
     pairs.sort(key=lambda x: x[0])
@@ -112,25 +114,29 @@ def main():
     ckpt_dir = resolve_ckpt_dir(opt.model_root, opt.run_dir)
     ckpts = list_actor_ckpts(ckpt_dir)
     if len(ckpts) == 0:
-        raise FileNotFoundError(f'No SAC actor checkpoint found under: {ckpt_dir}')
+        raise FileNotFoundError(f"No SAC actor checkpoint found under: {ckpt_dir}")
 
-    print(f'Evaluating SAC-ASL checkpoints from: {ckpt_dir}')
+    print(f"Evaluating SAC-ASL checkpoints from: {ckpt_dir}")
 
     timenow = str(datetime.now())[0:-10]
-    timenow = ' ' + timenow[0:13] + '_' + timenow[-2::]
-    writepath = f'runs/SAC_ASL_Eval-C{opt.C}-N{opt.N}-' + timenow
+    timenow = " " + timenow[0:13] + "_" + timenow[-2::]
+    writepath = f"runs/SAC_ASL_Eval-C{opt.C}-N{opt.N}-" + timenow
     if os.path.exists(writepath):
         shutil.rmtree(writepath)
     writer = SummaryWriter(log_dir=writepath)
 
     results = []
     for model_idx, ckpt_path in ckpts:
-        agent.actor.load_state_dict(torch.load(ckpt_path, map_location=opt.dvc, weights_only=True))
+        agent.actor.load_state_dict(
+            torch.load(ckpt_path, map_location=opt.dvc, weights_only=True)
+        )
 
         ep_steps, ep_r, arrival_rate = 0, 0, 0
         for _ in range(opt.C):
-            temp_ep_steps, temp_ep_r, temp_arrival_rate = vectorized_model_evaluation_sac(
-                eval_envs, agent, deterministic=opt.deterministic
+            temp_ep_steps, temp_ep_r, temp_arrival_rate = (
+                vectorized_model_evaluation_sac(
+                    eval_envs, agent, deterministic=opt.deterministic
+                )
             )
             ep_steps += temp_ep_steps
             ep_r += temp_ep_r
@@ -140,27 +146,39 @@ def main():
         ep_r /= opt.C
         arrival_rate /= opt.C
 
-        writer.add_scalar('ep_steps', ep_steps, global_step=model_idx)
-        writer.add_scalar('ep_r', ep_r, global_step=model_idx)
-        writer.add_scalar('arrival_rate', arrival_rate, global_step=model_idx)
+        writer.add_scalar("ep_steps", ep_steps, global_step=model_idx)
+        writer.add_scalar("ep_r", ep_r, global_step=model_idx)
+        writer.add_scalar("arrival_rate", arrival_rate, global_step=model_idx)
 
-        normed_ep_steps = round((opt.max_ep_steps - ep_steps) / (opt.max_ep_steps - 70), 3)
+        normed_ep_steps = round(
+            (opt.max_ep_steps - ep_steps) / (opt.max_ep_steps - 70), 3
+        )
         normed_ep_r = round(ep_r / 220, 3)
         arrival_rate = round(arrival_rate, 3)
-        normed_total_score = round((normed_ep_steps + normed_ep_r + arrival_rate) / 3, 3)
+        normed_total_score = round(
+            (normed_ep_steps + normed_ep_r + arrival_rate) / 3, 3
+        )
 
         model_name = os.path.basename(ckpt_path)
-        results.append((model_name, normed_total_score, arrival_rate, normed_ep_steps, normed_ep_r))
+        results.append(
+            (model_name, normed_total_score, arrival_rate, normed_ep_steps, normed_ep_r)
+        )
 
-        print(f'model: {model_name}')
-        print(f'Episodic Steps: {int(ep_steps)}, Episodic Rewards: {int(ep_r)}, Arrival Rate: {arrival_rate}')
-        print(f'Total Score: {normed_total_score}, Arrival Rate: {arrival_rate}, Step Score: {normed_ep_steps}, Reward Score: {normed_ep_r}')
-        print('----------------------------------------------------------------------------------------------')
+        print(f"model: {model_name}")
+        print(
+            f"Episodic Steps: {int(ep_steps)}, Episodic Rewards: {int(ep_r)}, Arrival Rate: {arrival_rate}"
+        )
+        print(
+            f"Total Score: {normed_total_score}, Arrival Rate: {arrival_rate}, Step Score: {normed_ep_steps}, Reward Score: {normed_ep_r}"
+        )
+        print(
+            "----------------------------------------------------------------------------------------------"
+        )
 
-    write_rank('SAC_ASL_TotalRank.txt', reversed(sorted(results, key=lambda x: x[1])))
-    write_rank('SAC_ASL_ArrivalRank.txt', reversed(sorted(results, key=lambda x: x[2])))
-    write_rank('SAC_ASL_StepRank.txt', reversed(sorted(results, key=lambda x: x[3])))
-    write_rank('SAC_ASL_RewardRank.txt', reversed(sorted(results, key=lambda x: x[4])))
+    write_rank("SAC_ASL_TotalRank.txt", reversed(sorted(results, key=lambda x: x[1])))
+    write_rank("SAC_ASL_ArrivalRank.txt", reversed(sorted(results, key=lambda x: x[2])))
+    write_rank("SAC_ASL_StepRank.txt", reversed(sorted(results, key=lambda x: x[3])))
+    write_rank("SAC_ASL_RewardRank.txt", reversed(sorted(results, key=lambda x: x[4])))
 
     writer.close()
     eval_envs.close()
@@ -203,17 +221,17 @@ def vectorized_model_evaluation_sac(envs, agent, deterministic=True):
 
 
 def write_rank(filename, data):
-    path = 'Evaluation_result'
+    path = "Evaluation_result"
     if not os.path.exists(path):
         os.mkdir(path)
-    with open(path + '/' + filename, 'w') as f:
+    with open(path + "/" + filename, "w") as f:
         column_width = 20
-        header = ['Index', 'Total Score', 'Arrival Score', 'Step Score', 'Reward Score']
-        f.write('|'.join(f'{h:<{column_width}}' for h in header) + '\n')
+        header = ["Index", "Total Score", "Arrival Score", "Step Score", "Reward Score"]
+        f.write("|".join(f"{h:<{column_width}}" for h in header) + "\n")
         for item in data:
-            line = '|'.join(f'{str(element):<{column_width}}' for element in item)
-            f.write(line + '\n')
+            line = "|".join(f"{str(element):<{column_width}}" for element in item)
+            f.write(line + "\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
