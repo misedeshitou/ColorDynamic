@@ -75,7 +75,7 @@ def _normalize_cli_argv(argv):
 if __name__ == '__main__':
     '''Hyperparameter Setting for DRL'''
     parser = argparse.ArgumentParser()
-    parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
+    parser.add_argument('--write', type=str2bool, default=True, help='Use SummaryWriter to record the training')
     parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
     parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
     parser.add_argument('--ModelIndex', type=int, default=-1, help='which model to load (k steps), -1 means latest')
