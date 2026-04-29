@@ -128,6 +128,7 @@ class TransSAC_agent:
 
         self.q_critic_optimizer.zero_grad()
         q_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.q_critic.parameters(), max_norm=0.5)
         self.q_critic_optimizer.step()
 
         # ------------------------------------------ Train Actor ----------------------------------------#
@@ -143,6 +144,7 @@ class TransSAC_agent:
         self.actor_optimizer.zero_grad()
         a_loss_mean = a_loss.mean()
         a_loss_mean.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
         self.actor_optimizer.step()
 
         # ------------------------------------------ Train Alpha ----------------------------------------#

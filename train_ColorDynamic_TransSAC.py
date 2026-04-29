@@ -94,17 +94,17 @@ if __name__ == '__main__':
     parser.add_argument('--fast_mode', type=str2bool, default=True, help='Use faster (non-deterministic) backend settings for higher throughput')
 
     parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
-    parser.add_argument('--net_width', type=int, default=64, help='Linear net width')
+    parser.add_argument('--net_width', type=int, default=32, help='Linear net width')
     parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape')
-    parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--batch_size', type=int, default=512, help='batch size')
     parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
     parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
 
     # Transqer configuration
     parser.add_argument('--T', type=int, default=10, help='length of time window')
-    parser.add_argument('--H', type=int, default=8, help='Number of Head')
-    parser.add_argument('--L', type=int, default=3, help='Number of Transformer Encoder Layers')
+    parser.add_argument('--H', type=int, default=4, help='Number of Head')
+    parser.add_argument('--L', type=int, default=2, help='Number of Transformer Encoder Layers')
 
     '''Hyperparameter Setting for Sparrow'''
     parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
@@ -112,14 +112,14 @@ if __name__ == '__main__':
     parser.add_argument('--window_size', type=int, default=800, help='size of the training map')
     parser.add_argument('--D', type=int, default=400, help='maximal local planning distance')
     parser.add_argument('--N', type=int, default=64, help='number of vectorized environments')
-    parser.add_argument('--O', type=int, default=15, help='number of obstacles in each environment')
+    parser.add_argument('--O', type=int, default=5, help='number of obstacles in each environment')
     parser.add_argument('--RdON', type=str2bool, default=False, help='whether to randomize the Number of dynamic obstacles')
     parser.add_argument('--ScOV', type=str2bool, default=False, help='whether to scale the maximal velocity of dynamic obstacles')
     parser.add_argument('--RdOV', type=str2bool, default=False, help='whether to randomize the Velocity of dynamic obstacles')
     parser.add_argument('--RdOT', type=str2bool, default=True, help='whether to randomize the Type of dynamic obstacles')
     parser.add_argument('--RdOR', type=str2bool, default=True, help='whether to randomize the Radius of obstacles')
     parser.add_argument('--Obs_R', type=int, default=14, help='maximal obstacle radius, cm')
-    parser.add_argument('--Obs_V', type=int, default=50, help='maximal obstacle velocity, cm/s')
+    parser.add_argument('--Obs_V', type=int, default=10, help='maximal obstacle velocity, cm/s')
     parser.add_argument('--MapObs', type=str, default=None, help="name of map file, e.g. 'map.png' or None")
     parser.add_argument('--ld_a_range', type=int, default=360, help='max scanning angle of lidar (degree)')
     parser.add_argument('--ld_d_range', type=int, default=300, help='max scanning distance of lidar (cm)')
