@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import shutil
 from datetime import datetime
 
@@ -7,6 +8,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from Sparrow_V2 import Sparrow, str2bool
+from utils.TransSAC import TransSAC_agent
 from utils.Transqer import Transqer_agent
 
 # fmt: off
@@ -14,12 +16,19 @@ parser = argparse.ArgumentParser()
 '''Hyperparameter Setting for Evaluation: model_eval_turns = C*N'''
 parser.add_argument('--C', type=int, default=10, help='number of reset times')
 parser.add_argument('--N', type=int, default=10, help='number of vectorized environments')
+parser.add_argument('--algo', type=str, default='Transqer', choices=['Transqer', 'TransSAC'], help='agent to evaluate')
+parser.add_argument('--model_dir', type=str, default='model', help='checkpoint directory')
 
-'''Hyperparameter Setting for Transqer'''
+'''Hyperparameter Setting for Transqer/TransSAC'''
 parser.add_argument('--net_width', type=int, default=64, help='Linear net width')
 parser.add_argument('--T', type=int, default=10, help='length of time window')
 parser.add_argument('--H', type=int, default=8, help='Number of Head')
 parser.add_argument('--L', type=int, default=3, help='Number of Transformer Encoder Layers')
+parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape (for TransSAC)')
+parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate (for TransSAC)')
+parser.add_argument('--batch_size', type=int, default=512, help='batch size (for TransSAC)')
+parser.add_argument('--alpha', type=float, default=0.2, help='init alpha (for TransSAC)')
+parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha tuning (for TransSAC)')
 
 '''Hyperparameter Setting for Sparrow'''
 parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
@@ -63,21 +72,35 @@ def main():
     opt.state_dim = eval_envs.state_dim
     opt.action_dim = eval_envs.action_dim
 
-    # Init Transqer agent
-    agent = Transqer_agent(opt)
+    # Init agent
+    if opt.algo == 'TransSAC':
+        agent = TransSAC_agent(**vars(opt))
+    else:
+        agent = Transqer_agent(opt)
 
     # use SummaryWriter to record the training curve
     timenow = str(datetime.now())[0:-10]
     timenow = " " + timenow[0:13] + "_" + timenow[-2::]
-    writepath = f"runs/ColorDynamic-C{opt.C}-N{opt.N}-" + timenow
+    writepath = f"runs/ColorDynamic-{opt.algo}-C{opt.C}-N{opt.N}-" + timenow
     if os.path.exists(writepath):
         shutil.rmtree(writepath)
     writer = SummaryWriter(log_dir=writepath)
 
     results = []
-    for model_name in sorted(os.listdir("model"), key=lambda x: int(x[0:-5])):
-        model_idx = int(model_name[0:-5])
-        agent.load(model_idx)
+    opt.model_dir = resolve_model_dir(opt.model_dir, opt.algo)
+    model_indices = list_model_indices(opt.model_dir, opt.algo)
+    if len(model_indices) == 0:
+        raise FileNotFoundError(
+            f"No checkpoints found for {opt.algo} in: {opt.model_dir}"
+        )
+
+    for model_idx in model_indices:
+        if opt.algo == 'TransSAC':
+            model_name = f"transsac_actor_{model_idx}.pth"
+            agent.load(model_idx, model_dir=opt.model_dir)
+        else:
+            model_name = f"{model_idx}k.pth"
+            agent.load(model_idx)
 
         """Model evaluation"""
         # ----------------------- 测试C种不同的地图，每次开N个并行环境，每个模型共evaluateC*N次 -----------------------
@@ -122,10 +145,10 @@ def main():
             "----------------------------------------------------------------------------------------------"
         )
 
-    write("TotalRank.txt", reversed(sorted(results, key=lambda x: x[1])))
-    write("ArrivalRank.txt", reversed(sorted(results, key=lambda x: x[2])))
-    write("StepRank.txt", reversed(sorted(results, key=lambda x: x[3])))
-    write("RewardRank.txt", reversed(sorted(results, key=lambda x: x[4])))
+    write(f"TotalRank_{opt.algo}.txt", reversed(sorted(results, key=lambda x: x[1])))
+    write(f"ArrivalRank_{opt.algo}.txt", reversed(sorted(results, key=lambda x: x[2])))
+    write(f"StepRank_{opt.algo}.txt", reversed(sorted(results, key=lambda x: x[3])))
+    write(f"RewardRank_{opt.algo}.txt", reversed(sorted(results, key=lambda x: x[4])))
 
     eval_envs.close()
 
@@ -142,10 +165,12 @@ def vectorized_model_evaluation(envs, agent, deterministic):
     ct = torch.ones(opt.N, device=opt.dvc, dtype=torch.bool)
     while not finished_vec.all():
         """单步state -> 时序窗口state:"""
-        agent.queue.append(s)  # 将s加入时序窗口队列
-        TW_s = agent.queue.get()  # 取出队列所有数据及
-
-        a = agent.select_action(TW_s, deterministic)
+        if opt.algo == 'TransSAC':
+            a = agent.select_action(s, deterministic)
+        else:
+            agent.queue.append(s)  # 将s加入时序窗口队列
+            TW_s = agent.queue.get()  # 取出队列所有数据及
+            a = agent.select_action(TW_s, deterministic)
         s, r, dw, tr, info = envs.step(a)
 
         """解析dones, wins, deads, truncateds, consistents信号："""
@@ -178,6 +203,58 @@ def vectorized_model_evaluation(envs, agent, deterministic):
         total_r.item() / finished.item(),
         arrived_vec.sum().item() / opt.N,
     )
+
+
+def list_model_indices(model_dir, algo):
+    if algo == 'TransSAC':
+        pattern = re.compile(r"^transsac_actor_(\d+)\.pth$")
+    else:
+        pattern = re.compile(r"^(\d+)k\.pth$")
+
+    indices = []
+    for name in os.listdir(model_dir):
+        m = pattern.match(name)
+        if m is not None:
+            indices.append(int(m.group(1)))
+    return sorted(indices)
+
+
+def resolve_model_dir(model_dir, algo):
+    if algo != 'TransSAC':
+        return model_dir
+
+    candidates = [model_dir]
+
+    # 兼容常见拼写错误：TranSAC -> TransSAC
+    if 'TranSAC' in model_dir:
+        candidates.append(model_dir.replace('TranSAC', 'TransSAC'))
+
+    # 若传入的是 model 根目录，补一个 model/TransSAC
+    for base in list(candidates):
+        if os.path.basename(os.path.normpath(base)) != 'TransSAC':
+            candidates.append(os.path.join(base, 'TransSAC'))
+
+    # 先检查候选目录本身是否已经有 checkpoint
+    for c in candidates:
+        if os.path.isdir(c) and len(list_model_indices(c, algo)) > 0:
+            return c
+
+    # 再检查候选目录下的时间戳子目录
+    for c in candidates:
+        if not os.path.isdir(c):
+            continue
+        subdirs = [
+            d
+            for d in os.listdir(c)
+            if os.path.isdir(os.path.join(c, d))
+        ]
+        subdirs.sort(reverse=True)
+        for d in subdirs:
+            dpath = os.path.join(c, d)
+            if len(list_model_indices(dpath, algo)) > 0:
+                return dpath
+
+    return model_dir
 
 
 def write(filename, data):
