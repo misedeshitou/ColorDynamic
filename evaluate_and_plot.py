@@ -8,8 +8,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from Sparrow_V2 import Sparrow, str2bool
-from utils.TransSAC import TransSAC_agent
 from utils.Transqer import Transqer_agent
+from utils.TransSAC import TransSAC_agent
 
 # fmt: off
 parser = argparse.ArgumentParser()
@@ -73,7 +73,7 @@ def main():
     opt.action_dim = eval_envs.action_dim
 
     # Init agent
-    if opt.algo == 'TransSAC':
+    if opt.algo == "TransSAC":
         agent = TransSAC_agent(**vars(opt))
     else:
         agent = Transqer_agent(opt)
@@ -95,7 +95,7 @@ def main():
         )
 
     for model_idx in model_indices:
-        if opt.algo == 'TransSAC':
+        if opt.algo == "TransSAC":
             model_name = f"transsac_actor_{model_idx}.pth"
             agent.load(model_idx, model_dir=opt.model_dir)
         else:
@@ -165,7 +165,7 @@ def vectorized_model_evaluation(envs, agent, deterministic):
     ct = torch.ones(opt.N, device=opt.dvc, dtype=torch.bool)
     while not finished_vec.all():
         """单步state -> 时序窗口state:"""
-        if opt.algo == 'TransSAC':
+        if opt.algo == "TransSAC":
             a = agent.select_action(s, deterministic)
         else:
             agent.queue.append(s)  # 将s加入时序窗口队列
@@ -206,7 +206,7 @@ def vectorized_model_evaluation(envs, agent, deterministic):
 
 
 def list_model_indices(model_dir, algo):
-    if algo == 'TransSAC':
+    if algo == "TransSAC":
         pattern = re.compile(r"^transsac_actor_(\d+)\.pth$")
     else:
         pattern = re.compile(r"^(\d+)k\.pth$")
@@ -220,19 +220,19 @@ def list_model_indices(model_dir, algo):
 
 
 def resolve_model_dir(model_dir, algo):
-    if algo != 'TransSAC':
+    if algo != "TransSAC":
         return model_dir
 
     candidates = [model_dir]
 
     # 兼容常见拼写错误：TranSAC -> TransSAC
-    if 'TranSAC' in model_dir:
-        candidates.append(model_dir.replace('TranSAC', 'TransSAC'))
+    if "TranSAC" in model_dir:
+        candidates.append(model_dir.replace("TranSAC", "TransSAC"))
 
     # 若传入的是 model 根目录，补一个 model/TransSAC
     for base in list(candidates):
-        if os.path.basename(os.path.normpath(base)) != 'TransSAC':
-            candidates.append(os.path.join(base, 'TransSAC'))
+        if os.path.basename(os.path.normpath(base)) != "TransSAC":
+            candidates.append(os.path.join(base, "TransSAC"))
 
     # 先检查候选目录本身是否已经有 checkpoint
     for c in candidates:
@@ -243,11 +243,7 @@ def resolve_model_dir(model_dir, algo):
     for c in candidates:
         if not os.path.isdir(c):
             continue
-        subdirs = [
-            d
-            for d in os.listdir(c)
-            if os.path.isdir(os.path.join(c, d))
-        ]
+        subdirs = [d for d in os.listdir(c) if os.path.isdir(os.path.join(c, d))]
         subdirs.sort(reverse=True)
         for d in subdirs:
             dpath = os.path.join(c, d)
