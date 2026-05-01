@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import re
 import sys
@@ -21,7 +22,7 @@ def _get_latest_transsac_kstep(model_dir):
     if not os.path.isdir(model_dir):
         return None
 
-    pattern = re.compile(r"^transsac_actor_(\d+)\.pth$")
+    pattern = re.compile(r"^transsac_(?:ckpt|actor)_(\d+)\.pth$")
     latest_kstep = None
     for name in os.listdir(model_dir):
         matched = pattern.match(name)
@@ -69,6 +70,48 @@ def _normalize_cli_argv(argv):
             normalized.append(token)
 
     return normalized
+
+
+def evaluate(envs, agent, deterministic=True, turns=20):
+    queue_state = copy.deepcopy(agent.queue.__dict__)
+    step_collector, total_steps = torch.zeros(envs.N, device=envs.dvc), 0
+    r_collector, total_r = torch.zeros(envs.N, device=envs.dvc), 0
+    arrived, finished = 0, 0
+
+    try:
+        agent.queue.clear()
+        s, info = envs.reset()
+        while finished < turns:
+            a = agent.select_action(s, deterministic)
+            s, r, dw, tr, info = envs.step(a)
+
+            dones = dw + tr
+            wins = r == envs.AWARD
+            dead_and_tr = dones ^ wins
+
+            if dones.any():
+                agent.queue.padding_with_done(dones)
+
+            step_collector += 1
+            total_steps += step_collector[wins].sum()
+            total_steps += (envs.max_ep_steps * dead_and_tr).sum()
+            step_collector[dones] = 0
+
+            r_collector += r
+            total_r += r_collector[dones].sum()
+            r_collector[dones] = 0
+
+            finished += int(dones.sum().item())
+            arrived += int(wins.sum().item())
+
+        return (
+            int(total_steps.item() / finished),
+            round(total_r.item() / finished, 2),
+            round(arrived / finished, 2),
+        )
+    finally:
+        agent.queue.__dict__.clear()
+        agent.queue.__dict__.update(queue_state)
 
 
 # fmt: off
@@ -215,31 +258,20 @@ if __name__ == '__main__':
     opt.action_dim = env.action_dim
     agent = TransSAC_agent(**vars(opt))
 
-# Seed Everything
-    torch.manual_seed(opt.seed)
-    torch.cuda.manual_seed(opt.seed)
-    
     # 限制 CPU 线程数，防止多线程空转抢夺 CPU 导致 100% 满载
-    torch.set_num_threads(4) 
-    
-    if opt.fast_mode:
-        torch.backends.cudnn.deterministic = False
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.set_float32_matmul_precision("high")
-    else:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        
+    torch.set_num_threads(4)
+
     print("Random Seed: {}".format(opt.seed))
     print(f"[TransSAC] logs -> {opt.run_dir}")
     print(f"[TransSAC] models -> {opt.model_dir}")
     print(f"[TransSAC] fast_mode={opt.fast_mode}, eval_enable={opt.eval_enable}, train_repeat={opt.train_repeat}")
     
     if opt.Loadmodel:
-        print(f"[TransSAC] resume ckpt -> {os.path.join(opt.load_model_dir, f'transsac_actor_{opt.ModelIndex}.pth')}")
+        print(f"[TransSAC] resume ckpt -> {os.path.join(opt.load_model_dir, f'transsac_ckpt_{opt.ModelIndex}.pth')}")
         agent.load(opt.ModelIndex, model_dir=opt.load_model_dir)
+        opt.initial_total_steps = int(getattr(agent, "loaded_total_steps", opt.initial_total_steps))
+
+    agent.total_steps = int(opt.initial_total_steps)
         
     print(f"[TransSAC] start total_steps -> {opt.initial_total_steps}")
 
@@ -294,12 +326,6 @@ if __name__ == '__main__':
                 writer.add_scalar("Alpha/value", train_info["alpha"], total_steps)
                 writer.add_scalar("Policy/Entropy", train_info["entropy"], total_steps)
 
-        # 频率从 100 降到 1000，减少调用 .item() 引发的 CPU-GPU 强制同步开销
-        if writer is not None and total_steps % 1000 == 0:
-            writer.add_scalar("Train/RewardMean", r.mean().item(), total_steps)
-            writer.add_scalar("Train/DoneRate", dones.float().mean().item(), total_steps)
-            writer.add_scalar("Buffer/Size", agent.replay_buffer.size, total_steps)
-
         if (
             opt.eval_enable
             and eval_env is not None
@@ -315,9 +341,9 @@ if __name__ == '__main__':
             if writer is not None:
                 writer.add_scalar("Eval/ArrivalRate", test_arrival_rate, total_steps)
                 writer.add_scalar("Eval/Reward", test_ep_r, total_steps)
-                writer.add_scalar("Eval/Steps", test_ep_steps, total_steps)
 
         total_steps += 1
+        agent.total_steps = total_steps
 
         """save model"""
         if total_steps % opt.save_interval == 0:
@@ -330,42 +356,3 @@ if __name__ == '__main__':
     if eval_env is not None:
         eval_env.close()
     print("Training Finished.")
-
-def evaluate(envs, agent, deterministic=True, turns=20):
-    step_collector, total_steps = torch.zeros(envs.N, device=envs.dvc), 0
-    r_collector, total_r = torch.zeros(envs.N, device=envs.dvc), 0
-    arrived, finished = 0, 0
-
-    agent.queue.clear()
-    s, info = envs.reset()
-    while finished < turns:
-        a = agent.select_action(s, deterministic)
-        s, r, dw, tr, info = envs.step(a)
-
-        dones = dw + tr
-        wins = r == envs.AWARD
-        dead_and_tr = dones ^ wins
-
-        if dones.any():
-            agent.queue.padding_with_done(dones)
-
-        step_collector += 1
-        total_steps += step_collector[wins].sum()
-        total_steps += (envs.max_ep_steps * dead_and_tr).sum()
-        step_collector[dones] = 0
-
-        r_collector += r
-        total_r += r_collector[dones].sum()
-        r_collector[dones] = 0
-
-        finished += int(dones.sum().item())
-        arrived += int(wins.sum().item())
-
-    return (
-        int(total_steps.item() / finished),
-        round(total_r.item() / finished, 2),
-        round(arrived / finished, 2),
-    )
-
-if __name__ == "__main__":
-    main()

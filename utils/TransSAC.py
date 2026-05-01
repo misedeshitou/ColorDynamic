@@ -1,5 +1,6 @@
 import copy
 import os
+import random
 import time
 
 import numpy as np
@@ -53,6 +54,8 @@ class TransSAC_agent:
         # 计时变量
         self.timer_steps = 0
         self.timer_start = 0.0
+        self.total_steps = 0
+        self.loaded_total_steps = 0
 
         for p in self.q_critic_target.parameters():
             p.requires_grad = False
@@ -67,6 +70,34 @@ class TransSAC_agent:
                 device=self.dvc,
             )
             self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=self.lr)
+
+    def _load_torch_object(self, file_path):
+        try:
+            return torch.load(file_path, map_location=self.dvc, weights_only=False)
+        except TypeError:
+            return torch.load(file_path, map_location=self.dvc)
+
+    def _pack_rng_state(self):
+        return {
+            "python": random.getstate(),
+            "numpy": np.random.get_state(),
+            "torch": torch.get_rng_state(),
+            "cuda": torch.cuda.get_rng_state_all()
+            if torch.cuda.is_available()
+            else None,
+        }
+
+    def _restore_rng_state(self, rng_state):
+        if not rng_state:
+            return
+
+        random.setstate(rng_state["python"])
+        np.random.set_state(rng_state["numpy"])
+        torch.set_rng_state(rng_state["torch"])
+
+        cuda_state = rng_state.get("cuda")
+        if torch.cuda.is_available() and cuda_state is not None:
+            torch.cuda.set_rng_state_all(cuda_state)
 
     def select_action(self, state, deterministic):
         """
@@ -193,27 +224,83 @@ class TransSAC_agent:
     def save(self, timestep):
         model_dir = getattr(self, "model_dir", "model")
         os.makedirs(model_dir, exist_ok=True)
-        torch.save(
-            self.actor.state_dict(),
-            os.path.join(model_dir, f"transsac_actor_{timestep}.pth"),
-        )
-        torch.save(
-            self.q_critic.state_dict(),
-            os.path.join(model_dir, f"transsac_critic_{timestep}.pth"),
-        )
+
+        checkpoint = {
+            "version": 1,
+            "timestep": int(timestep),
+            "total_steps": int(getattr(self, "total_steps", int(timestep) * 1000)),
+            "actor": self.actor.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "q_critic": self.q_critic.state_dict(),
+            "q_critic_optimizer": self.q_critic_optimizer.state_dict(),
+            "q_critic_target": self.q_critic_target.state_dict(),
+            "replay_buffer_state": copy.deepcopy(self.replay_buffer.__dict__),
+            "queue_state": copy.deepcopy(self.queue.__dict__),
+            "timer_steps": int(self.timer_steps),
+            "H_mean": float(self.H_mean.item())
+            if torch.is_tensor(self.H_mean)
+            else float(self.H_mean),
+            "alpha": float(self.alpha),
+            "adaptive_alpha": bool(self.adaptive_alpha),
+            "rng_state": self._pack_rng_state(),
+        }
+
+        if self.adaptive_alpha:
+            checkpoint["log_alpha"] = self.log_alpha.detach().cpu()
+            checkpoint["alpha_optim"] = self.alpha_optim.state_dict()
+
+        torch.save(checkpoint, os.path.join(model_dir, f"transsac_ckpt_{timestep}.pth"))
 
     def load(self, timestep, model_dir=None):
         model_dir = model_dir or getattr(self, "model_dir", "model")
+        ckpt_path = os.path.join(model_dir, f"transsac_ckpt_{timestep}.pth")
+
+        if os.path.exists(ckpt_path):
+            checkpoint = self._load_torch_object(ckpt_path)
+
+            self.actor.load_state_dict(checkpoint["actor"])
+            self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+
+            self.q_critic.load_state_dict(checkpoint["q_critic"])
+            self.q_critic_optimizer.load_state_dict(checkpoint["q_critic_optimizer"])
+            self.q_critic_target.load_state_dict(checkpoint["q_critic_target"])
+
+            self.replay_buffer.__dict__.update(
+                checkpoint.get("replay_buffer_state", {})
+            )
+            self.queue.__dict__.update(checkpoint.get("queue_state", {}))
+
+            self.timer_steps = int(checkpoint.get("timer_steps", 0))
+            self.total_steps = int(checkpoint.get("total_steps", int(timestep) * 1000))
+            self.loaded_total_steps = self.total_steps
+            self.H_mean = checkpoint.get("H_mean", 0.0)
+            self.alpha = float(checkpoint.get("alpha", self.alpha))
+
+            if self.adaptive_alpha and "log_alpha" in checkpoint:
+                self.log_alpha = torch.tensor(
+                    float(checkpoint["log_alpha"].item()),
+                    dtype=torch.float32,
+                    requires_grad=True,
+                    device=self.dvc,
+                )
+                self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=self.lr)
+                if "alpha_optim" in checkpoint:
+                    self.alpha_optim.load_state_dict(checkpoint["alpha_optim"])
+
+            self._restore_rng_state(checkpoint.get("rng_state"))
+            return checkpoint
+
         self.actor.load_state_dict(
-            torch.load(
-                os.path.join(model_dir, f"transsac_actor_{timestep}.pth"),
-                map_location=self.dvc,
+            self._load_torch_object(
+                os.path.join(model_dir, f"transsac_actor_{timestep}.pth")
             )
         )
         self.q_critic.load_state_dict(
-            torch.load(
-                os.path.join(model_dir, f"transsac_critic_{timestep}.pth"),
-                map_location=self.dvc,
+            self._load_torch_object(
+                os.path.join(model_dir, f"transsac_critic_{timestep}.pth")
             )
         )
         self.q_critic_target.load_state_dict(self.q_critic.state_dict())
+        self.total_steps = int(timestep) * 1000
+        self.loaded_total_steps = self.total_steps
+        return None

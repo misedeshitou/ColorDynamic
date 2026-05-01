@@ -12,8 +12,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
-parser.add_argument('--ModelIndex', type=int, default=550, help='which model to load')
-parser.add_argument('--model_dir', type=str, default='model/TransSAC/20260427_133045', help='directory of TransSAC checkpoints')
+parser.add_argument('--ModelIndex', type=int, default=50, help='which model to load')
+parser.add_argument('--model_dir', type=str, default='model/TransSAC/20260429_191757', help='directory of TransSAC checkpoints')
 
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--max_train_steps', type=int, default=5e7, help='Max training steps')
@@ -23,7 +23,7 @@ parser.add_argument('--random_steps', type=int, default=1e4, help='steps for ran
 parser.add_argument('--update_every', type=int, default=50, help='training frequency')
 
 parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
-parser.add_argument('--net_width', type=int, default=64, help='Linear net width')
+parser.add_argument('--net_width', type=int, default=32, help='Linear net width')
 parser.add_argument('--hid_shape', type=list, default=[200,200], help='Hidden net shape')
 parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate')
 parser.add_argument('--batch_size', type=int, default=512, help='batch size')
@@ -32,8 +32,8 @@ parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use a
 
 # Transqer configuration
 parser.add_argument('--T', type=int, default=10, help='length of time window')
-parser.add_argument('--H', type=int, default=8, help='Number of Head')
-parser.add_argument('--L', type=int, default=3, help='Number of Transformer Encoder Layers')
+parser.add_argument('--H', type=int, default=4, help='Number of Head')
+parser.add_argument('--L', type=int, default=2, help='Number of Transformer Encoder Layers')
 
 '''Hyperparameter Setting for Sparrow'''
 parser.add_argument('--dvc', type=str, default='cuda', help='running device of Sparrow: cuda / cpu')
@@ -48,7 +48,7 @@ parser.add_argument('--RdOV', type=str2bool, default=True, help='whether to rand
 parser.add_argument('--RdOT', type=str2bool, default=True, help='whether to randomize the Type of dynamic obstacles')
 parser.add_argument('--RdOR', type=str2bool, default=True, help='whether to randomize the Radius of obstacles')
 parser.add_argument('--Obs_R', type=int, default=14, help='maximal obstacle radius, cm')
-parser.add_argument('--Obs_V', type=int, default=30, help='maximal obstacle velocity, cm/s')
+parser.add_argument('--Obs_V', type=int, default=10, help='maximal obstacle velocity, cm/s')
 parser.add_argument('--MapObs', type=str, default=None, help="name of map file, e.g. 'map.png' or None")
 parser.add_argument('--ld_a_range', type=int, default=360, help='max scanning angle of lidar (degree)')
 parser.add_argument('--ld_d_range', type=int, default=300, help='max scanning distance of lidar (cm)')
