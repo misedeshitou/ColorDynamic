@@ -101,19 +101,19 @@ class TransSACLearner:
                     # r shape: (batch_size, 1)
                     # dw shape: (batch_size, 1)
 
-                    # Populate agent's replay buffer for training
-                    # Note: shared buffer doesn't have s_next, so we approximate by shifting
-                    s_next = (
-                        s  # Approximate s_next as s (ideally would use next sample)
-                    )
+                    # Populate agent's replay buffer for training by iterating through the batch
+                    # Extract the last frame (current state) from the time window for replay buffer
+                    s_current = s[:, -1, :]  # Shape: (batch_size, state_dim)
+                    s_next = s  # Approximate s_next as s (same time window)
+                    s_next_current = s_next[:, -1, :]  # Shape: (batch_size, state_dim)
 
-                    for i in range(min(self.batch_size, 1)):
+                    for i in range(s.shape[0]):
                         self.agent.replay_buffer.add_batch(
-                            s[i : i + 1].unsqueeze(0),  # Shape: (1, 1, T, state_dim)
-                            a[i : i + 1],
-                            r[i : i + 1],
-                            s_next[i : i + 1].unsqueeze(0),
-                            dw[i : i + 1],
+                            s_current[i : i + 1],  # Shape: (1, state_dim)
+                            a[i : i + 1],  # Shape: (1, 1)
+                            r[i : i + 1],  # Shape: (1, 1)
+                            s_next_current[i : i + 1],  # Shape: (1, state_dim)
+                            dw[i : i + 1],  # Shape: (1, 1)
                         )
 
                     # Train if we have enough data
@@ -123,7 +123,8 @@ class TransSACLearner:
 
                             self.Bstep += 1
 
-                            if train_info is not None and self.Bstep % 100 == 0:
+                            # Record training metrics to TensorBoard every 10 steps
+                            if train_info is not None and self.Bstep % 10 == 0:
                                 self.writer.add_scalar(
                                     "Loss/Q", train_info["q_loss"], self.Bstep
                                 )
@@ -136,6 +137,7 @@ class TransSACLearner:
                                 self.writer.add_scalar(
                                     "Policy/Entropy", train_info["entropy"], self.Bstep
                                 )
+                                self.writer.flush()
 
                     """Upload model every upload_freq batch steps"""
                     if self.Bstep % self.upload_freq == 0 and self.Bstep > 0:
