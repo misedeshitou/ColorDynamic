@@ -36,6 +36,7 @@ class TransSACLearner:
         # Create agent
         self.agent = TransSAC_agent(**vars(opt))
         self.agent.dvc = self.L_dvc
+        self.agent.replay_buffer.to(self.L_dvc)
         self.agent.actor = self.agent.actor.to(self.L_dvc)
         self.agent.q_critic = self.agent.q_critic.to(self.L_dvc)
         self.agent.q_critic_target = self.agent.q_critic_target.to(self.L_dvc)
@@ -57,6 +58,7 @@ class TransSACLearner:
         if resume_k is not None:
             try:
                 self.agent.load(resume_k, self.model_dir)
+                self.agent.replay_buffer.to(self.L_dvc)
                 # set learner Bstep according to loaded total steps if available
                 loaded_steps = getattr(self.agent, "loaded_total_steps", 0)
                 if loaded_steps:

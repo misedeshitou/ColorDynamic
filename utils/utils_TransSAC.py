@@ -132,14 +132,24 @@ class ReplayBuffer(object):
         self.r = torch.zeros((max_size, 1), device=self.dvc)
         self.dw = torch.zeros((max_size, 1), dtype=torch.bool, device=self.dvc)
 
+    def to(self, device):
+        device = torch.device(device)
+        self.dvc = device
+        self.s = self.s.to(device)
+        self.a = self.a.to(device)
+        self.r = self.r.to(device)
+        self.dw = self.dw.to(device)
+        return self
+
     def add_batch(self, s, a, r, s_next, dw):
         n = s.shape[0]
-        idx = torch.arange(self.ptr, self.ptr + n, device=self.dvc) % self.max_size
+        buffer_device = self.s.device
+        idx = torch.arange(self.ptr, self.ptr + n, device=buffer_device) % self.max_size
 
-        self.s[idx] = torch.as_tensor(s, device=self.dvc).float()
-        self.a[idx] = torch.as_tensor(a, device=self.dvc).view(-1, 1).long()
-        self.r[idx] = torch.as_tensor(r, device=self.dvc).view(-1, 1).float()
-        self.dw[idx] = torch.as_tensor(dw, device=self.dvc).view(-1, 1).bool()
+        self.s[idx] = torch.as_tensor(s, device=buffer_device).float()
+        self.a[idx] = torch.as_tensor(a, device=buffer_device).view(-1, 1).long()
+        self.r[idx] = torch.as_tensor(r, device=buffer_device).view(-1, 1).float()
+        self.dw[idx] = torch.as_tensor(dw, device=buffer_device).view(-1, 1).bool()
 
         self.ptr = (self.ptr + n) % self.max_size
         self.size = min(self.size + n, self.max_size)
@@ -147,11 +157,12 @@ class ReplayBuffer(object):
     def sample(self, batch_size):
         # 随机采样 batch_size 个索引作为结束点
         # 确保 ind-T+1 > 0
-        ind = torch.randint(self.T, self.size, size=(batch_size,), device=self.dvc)
+        buffer_device = self.s.device
+        ind = torch.randint(self.T, self.size, size=(batch_size,), device=buffer_device)
 
         # 向量化构建时间窗，避免 Python 循环带来的 CPU 开销
         # [t, t-1, ..., t-T+1]
-        offsets = torch.arange(self.T, device=self.dvc)
+        offsets = torch.arange(self.T, device=buffer_device)
         tw_idx = ind.unsqueeze(1) - offsets.unsqueeze(0)
         tw_s = self.s[tw_idx]
 
