@@ -1,6 +1,5 @@
 import os
 import time
-from copy import deepcopy
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -142,7 +141,10 @@ class TransSACLearner:
                     """Upload model every upload_freq batch steps"""
                     if self.Bstep % self.upload_freq == 0 and self.Bstep > 0:
                         if not self.shared_data.get_should_download():
-                            actor_param = deepcopy(self.agent.actor.state_dict())
+                            actor_param = {
+                                key: value.detach().cpu()
+                                for key, value in self.agent.actor.state_dict().items()
+                            }
                             self.shared_data.set_actor_param(actor_param)
                             self.shared_data.set_should_download(True)
                             print(
