@@ -73,18 +73,47 @@ class TransSAC_agent:
 
     def _load_torch_object(self, file_path):
         try:
-            return torch.load(file_path, map_location=self.dvc, weights_only=False)
+            return torch.load(file_path, map_location="cpu", weights_only=False)
         except TypeError:
-            return torch.load(file_path, map_location=self.dvc)
+            return torch.load(file_path, map_location="cpu")
+
+    def _move_optimizer_state_to_device(self, optimizer, device):
+        for state in optimizer.state.values():
+            if isinstance(state, dict):
+                for key, value in state.items():
+                    if torch.is_tensor(value):
+                        state[key] = value.to(device)
+
+    def _normalize_rng_tensor(self, rng_tensor):
+        if isinstance(rng_tensor, torch.Tensor):
+            if rng_tensor.device.type != "cpu":
+                rng_tensor = rng_tensor.cpu()
+            if rng_tensor.dtype != torch.uint8:
+                rng_tensor = rng_tensor.to(dtype=torch.uint8)
+            return rng_tensor.contiguous()
+
+        if isinstance(rng_tensor, (bytes, bytearray)):
+            return torch.from_numpy(np.frombuffer(rng_tensor, dtype=np.uint8).copy())
+
+        if isinstance(rng_tensor, (list, tuple)):
+            if len(rng_tensor) == 1 and isinstance(rng_tensor[0], (bytes, bytearray)):
+                return self._normalize_rng_tensor(rng_tensor[0])
+            return torch.as_tensor(rng_tensor, dtype=torch.uint8).contiguous()
+
+        return torch.as_tensor(rng_tensor, dtype=torch.uint8).contiguous()
 
     def _pack_rng_state(self):
+        cuda_states = None
+        if torch.cuda.is_available():
+            cuda_states = [
+                state.detach().cpu() for state in torch.cuda.get_rng_state_all()
+            ]
+
         return {
             "python": random.getstate(),
             "numpy": np.random.get_state(),
-            "torch": torch.get_rng_state(),
-            "cuda": torch.cuda.get_rng_state_all()
-            if torch.cuda.is_available()
-            else None,
+            "torch": torch.get_rng_state().cpu(),
+            "cuda": cuda_states,
         }
 
     def _restore_rng_state(self, rng_state):
@@ -93,11 +122,21 @@ class TransSAC_agent:
 
         random.setstate(rng_state["python"])
         np.random.set_state(rng_state["numpy"])
-        torch.set_rng_state(rng_state["torch"])
+
+        torch_state = self._normalize_rng_tensor(rng_state["torch"])
+        torch.set_rng_state(torch_state)
 
         cuda_state = rng_state.get("cuda")
         if torch.cuda.is_available() and cuda_state is not None:
+            if isinstance(cuda_state, (bytes, bytearray)):
+                cuda_state = [self._normalize_rng_tensor(cuda_state)]
+            else:
+                cuda_state = [self._normalize_rng_tensor(state) for state in cuda_state]
             torch.cuda.set_rng_state_all(cuda_state)
+
+    def _restore_optimizer_state(self, optimizer, state_dict):
+        optimizer.load_state_dict(state_dict)
+        self._move_optimizer_state_to_device(optimizer, self.dvc)
 
     def select_action(self, state, deterministic):
         """
@@ -259,10 +298,14 @@ class TransSAC_agent:
             checkpoint = self._load_torch_object(ckpt_path)
 
             self.actor.load_state_dict(checkpoint["actor"])
-            self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+            self._restore_optimizer_state(
+                self.actor_optimizer, checkpoint["actor_optimizer"]
+            )
 
             self.q_critic.load_state_dict(checkpoint["q_critic"])
-            self.q_critic_optimizer.load_state_dict(checkpoint["q_critic_optimizer"])
+            self._restore_optimizer_state(
+                self.q_critic_optimizer, checkpoint["q_critic_optimizer"]
+            )
             self.q_critic_target.load_state_dict(checkpoint["q_critic_target"])
 
             self.replay_buffer.__dict__.update(
@@ -285,7 +328,9 @@ class TransSAC_agent:
                 )
                 self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=self.lr)
                 if "alpha_optim" in checkpoint:
-                    self.alpha_optim.load_state_dict(checkpoint["alpha_optim"])
+                    self._restore_optimizer_state(
+                        self.alpha_optim, checkpoint["alpha_optim"]
+                    )
 
             self._restore_rng_state(checkpoint.get("rng_state"))
             return checkpoint

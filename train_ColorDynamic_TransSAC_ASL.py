@@ -27,13 +27,13 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--max_train_steps', type=int, default=int(2E6), help='Max training total steps')
     parser.add_argument('--random_steps', type=int, default=int(1E4), help='steps for random policy exploration')
-    parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=1024, help='Batch size')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discounted Factor')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
     parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
     parser.add_argument('--update_every', type=int, default=10, help='training frequency')
-    parser.add_argument('--train_repeat', type=int, default=4, help='Extra train repeats per update trigger')
+    parser.add_argument('--train_repeat', type=int, default=8, help='Extra train repeats per update trigger')
     parser.add_argument('--upload_freq', type=int, default=int(500), help='actor download freq, in batch steps')
     parser.add_argument('--save_interval', type=int, default=int(5e4), help='Model save frequency, in batch steps')
     parser.add_argument('--eval_interval', type=int, default=int(5e3), help='Model evaluation frequency')
@@ -202,15 +202,15 @@ if __name__ == '__main__':
     opt.shared_data = ShareManager.shared_data_transsac(opt)
 
     processes = []
-    
-    # Actor process
-    print("[Main] Starting Actor process...")
-    processes.append(mp.Process(target=transsac_actor_process, args=(opt,)))
-    processes[-1].start()
 
     # Learner process
     print("[Main] Starting Learner process...")
     processes.append(mp.Process(target=transsac_learner_process, args=(opt,)))
+    processes[-1].start()
+
+    # Actor process
+    print("[Main] Starting Actor process...")
+    processes.append(mp.Process(target=transsac_actor_process, args=(opt,)))
     processes[-1].start()
 
     # Wait for all processes

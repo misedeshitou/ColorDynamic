@@ -134,7 +134,7 @@ class ReplayBuffer(object):
 
     def add_batch(self, s, a, r, s_next, dw):
         n = s.shape[0]
-        idx = torch.arange(self.ptr, self.ptr + n) % self.max_size
+        idx = torch.arange(self.ptr, self.ptr + n, device=self.dvc) % self.max_size
 
         self.s[idx] = torch.as_tensor(s, device=self.dvc).float()
         self.a[idx] = torch.as_tensor(a, device=self.dvc).view(-1, 1).long()

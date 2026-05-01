@@ -48,6 +48,10 @@ class TransSACLearner:
         self.writer = SummaryWriter(log_dir=self.run_dir)
         self.writer.add_text("config", str(vars(opt)))
 
+        if getattr(opt, "initial_total_steps", 0) > 0:
+            self.Bstep = int(opt.initial_total_steps / 1000)
+            self.shared_data.set_total_steps(int(opt.initial_total_steps))
+
         # If resuming, try to load checkpoint and restore steps
         resume_k = getattr(opt, "resume_actor_kstep", None)
         if resume_k is not None:
@@ -61,10 +65,6 @@ class TransSACLearner:
                     print(
                         f"(TransSAC Learner) Resumed from ckpt {resume_k}, total_steps={loaded_steps}"
                     )
-                else:
-                    # fallback to opt.initial_total_steps
-                    if getattr(opt, "initial_total_steps", 0) > 0:
-                        self.shared_data.set_total_steps(opt.initial_total_steps)
             except Exception as e:
                 print(f"(TransSAC Learner) Failed to load resume ckpt: {e}")
 

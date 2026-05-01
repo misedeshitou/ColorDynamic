@@ -45,6 +45,10 @@ class TransSACActor:
         ep_r = 0.0
 
         while self.total_steps < self.max_train_steps:
+            shared_total_steps = self.shared_data.get_total_steps()
+            if shared_total_steps > self.total_steps:
+                self.total_steps = shared_total_steps
+
             # baby-step curriculum learning (前15%进行难度递增)
             if (
                 self.total_steps > 0
