@@ -33,9 +33,9 @@ if __name__ == '__main__':
     parser.add_argument('--alpha', type=float, default=0.2, help='init alpha')
     parser.add_argument('--adaptive_alpha', type=str2bool, default=True, help='Use adaptive alpha turning')
     parser.add_argument('--update_every', type=int, default=10, help='training frequency')
-    parser.add_argument('--train_repeat', type=int, default=8, help='Extra train repeats per update trigger')
+    parser.add_argument('--train_repeat', type=int, default=12, help='Extra train repeats per update trigger')
     parser.add_argument('--upload_freq', type=int, default=int(500), help='actor download freq, in batch steps')
-    parser.add_argument('--save_interval', type=int, default=int(5e4), help='Model save frequency, in batch steps')
+    parser.add_argument('--save_interval', type=int, default=int(100), help='Model save frequency, in batch steps')
     parser.add_argument('--eval_interval', type=int, default=int(5e3), help='Model evaluation frequency')
     parser.add_argument('--reset_freq', type=int, default=int(3.2e3), help='training env reset frequency (curriculum learning), in total steps')
 
